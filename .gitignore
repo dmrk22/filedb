@@ -1,0 +1,11 @@
+# build output
+filedb
+*.o
+
+# tables created when running the program
+data/
+
+# local settings
+.vercel/
+.claude/
+.DS_Store

@@ -31,14 +31,12 @@
 
   var $ = function (s) { return document.querySelector(s); };
   var el = {
-    pill: $('#engine-pill'), status: $('#engine-status'),
-    crumbView: $('#crumb-view'), crumbTable: $('#crumb-table'), crumbSep: $('#crumb-sep2'),
-    tableList: $('#table-list'), tour: $('#tour'), tourCount: $('#tour-count'),
+    tableList: $('#table-list'),
     tableName: $('#table-name'), tableFormat: $('#table-format'), tableStats: $('#table-stats'),
-    toolbar: $('#toolbar'), grid: $('#grid'), gridEmpty: $('#grid-empty'),
+    grid: $('#grid'), gridEmpty: $('#grid-empty'),
     console: $('#console'), form: $('#console-form'), input: $('#console-input'), run: $('#btn-run'),
     filePath: $('#file-path'), fileChange: $('#file-change'), fileBody: $('#file-body'),
-    inspect: $('#file-inspect'), legend: $('#legend'), viewToggle: $('#view-toggle')
+    inspect: $('#file-inspect'), viewToggle: $('#view-toggle')
   };
 
   /* ================================================================
@@ -276,12 +274,8 @@
   }
 
   function renderHeader(t) {
-    var buttons = el.toolbar.querySelectorAll('button');
-    for (var i = 0; i < buttons.length; i++) buttons[i].disabled = !t;
-    el.crumbTable.textContent = t ? t.name : 'no table';
-
     if (!t) {
-      el.tableName.textContent = 'Select a table';
+      el.tableName.textContent = 'No table selected';
       el.tableFormat.hidden = true;
       el.tableStats.textContent = '';
       return;
@@ -292,8 +286,6 @@
     el.tableFormat.className = 'badge ' + (t.format === 'text' ? 'is-text' : 'is-binary');
     el.tableStats.textContent = plural(t.rows.length, 'record') + ', ' + plural(t.cols.length, 'column') +
       ', ' + plural(t.bytes.length, 'byte');
-    el.toolbar.querySelector('[data-action="convert"]').textContent =
-      'Convert to ' + (t.format === 'text' ? 'binary' : 'text');
   }
 
   function renderGrid(t) {
@@ -307,7 +299,7 @@
 
     var old = prevRows[t.name] || null;
     var html = '<thead><tr><th class="rownum" title="Record number, counted from 0 like in C">#</th>';
-    t.cols.forEach(function (c) { html += '<th>' + esc(c) + '<span class="col-type">char[32]</span></th>'; });
+    t.cols.forEach(function (c) { html += '<th>' + esc(c) + '</th>'; });
     html += '</tr></thead><tbody>';
 
     if (!t.rows.length) {
@@ -358,10 +350,10 @@
     cache = { name: t ? t.name : null, table: t };   // remember the table for hovering
     hovered = -1;
     if (!t) {
-      el.filePath.textContent = '—';
+      el.filePath.textContent = '';
       el.fileChange.innerHTML = lastChange && lastChange.text ? lastChange.text : '';
-      el.fileBody.innerHTML = '<p class="muted-note">The selected table\'s file appears here.</p>';
-      el.legend.innerHTML = '';
+      el.fileBody.innerHTML = '';
+      el.inspect.textContent = '';
       return;
     }
     if (t.format === 'text') computeLines(t);
@@ -394,8 +386,7 @@
       var k = +nodes[i].getAttribute('data-i');
       (cellsByByte[k] = cellsByByte[k] || []).push(nodes[i]);
     }
-    el.inspect.textContent = 'Point at a byte to see what it stores.';
-    renderLegend(t, view);
+    el.inspect.textContent = 'Hover a byte to see what it stores.';
 
     /* Scroll so the first changed byte is in view. */
     var first = -1;
@@ -450,21 +441,6 @@
               '<span></span><span class="hex-ascii">' + asciiPart + '</span></div>';
     }
     return html + '</div>';
-  }
-
-  function renderLegend(t, view) {
-    var items = t.format === 'binary'
-      ? [['var(--ochre)', 'File header: “FDB1” + column count'], ['var(--blue)', 'Column names'],
-         ['var(--band)', 'Records (every other one banded)'], ['var(--faint)', 'Unused space (00)'],
-         ['var(--hl)', 'Changed by the last command']]
-      : view === 'bytes'
-        ? [['var(--blue)', 'Header line'], ['var(--band)', 'Records (every other one banded)'], ['var(--ochre)', 'Comma (2C)'],
-           ['var(--faint)', 'Line end (0A)'], ['var(--hl)', 'Changed by the last command']]
-        : [['var(--blue)', 'Header line (column names)'], ['var(--ochre)', 'Comma'], ['var(--faint)', 'Line end ↵'],
-           ['var(--band)', 'Every other record banded'], ['var(--hl)', 'Changed by the last command']];
-    el.legend.innerHTML = items.map(function (it) {
-      return '<li><i style="background:' + it[0] + '"></i>' + esc(it[1]) + '</li>';
-    }).join('');
   }
 
   /* Explain one byte in plain words. */
@@ -526,7 +502,7 @@
   }
 
   /* ================================================================
-   *  Sample data, quick-start tour and command reference
+   *  Sample data and command reference
    * ================================================================ */
   var SAMPLE = [
     'create students text id name dept marks',
@@ -539,23 +515,6 @@
     'insert books 1 "The C Programming Language" Kernighan 450',
     'insert books 2 "Let Us C" Kanetkar 300',
     'insert books 3 "Data Structures in C" Tanenbaum 520'
-  ];
-
-  var TOUR = [
-    ['Make a text table', ['create students text id name dept marks']],
-    ['Add a record', ['insert students 1 Ravi CSE 85']],
-    ['Add four more', ['insert students 2 "Anita Sharma" ECE 92', 'insert students 3 Kiran CSE 78',
-                       'insert students 4 Meena MECH 58', 'insert students 5 Arjun EEE 100']],
-    ['Show all records', ['show students']],
-    ['Search: marks above 80', ['find students marks > 80']],
-    ['Sort by marks (as numbers)', ['sort students marks desc']],
-    ['Count CSE students', ['count students dept = CSE']],
-    ['Update a text file', ['update students set marks 95 where id = 3']],
-    ['Make a binary table', ['create books binary id title author price', 'insert books 1 "Let Us C" Kanetkar 300',
-                             'insert books 2 "Data Structures in C" Tanenbaum 520']],
-    ['Update in place with fseek', ['update books set price 350 where id = 1']],
-    ['Compare file sizes', ['compare students']],
-    ['Delete a record', ['delete students where dept = MECH']]
   ];
 
   var CMD_DOCS = [
@@ -574,22 +533,6 @@
     ['drop <table>', 'Delete a table and its file.', 'drop pets'],
     ['help', 'List all commands.', 'help']
   ];
-
-  function tourDone() {
-    try { return JSON.parse(localStorage.getItem('filedb-tour') || '[]'); } catch (e) { return []; }
-  }
-  function setTourDone(list) {
-    try { localStorage.setItem('filedb-tour', JSON.stringify(list)); } catch (e) { /* ignore */ }
-  }
-  function renderTour() {
-    var done = tourDone();
-    el.tour.innerHTML = TOUR.map(function (s, i) {
-      return '<li><button type="button" class="tour-btn' + (done.indexOf(i) >= 0 ? ' is-done' : '') + '" data-step="' + i + '">' +
-        '<span class="tour-num">' + (done.indexOf(i) >= 0 ? '✓' : i + 1) + '</span>' +
-        '<span class="tour-text">' + esc(s[0]) + '<span class="tour-cmd">' + esc(s[1][0]) + '</span></span></button></li>';
-    }).join('');
-    el.tourCount.textContent = done.length + '/' + TOUR.length;
-  }
 
   async function runMany(cmds) {
     if (busy) return;
@@ -612,10 +555,7 @@
    * ================================================================ */
   function showView(name) {
     document.querySelectorAll('.view').forEach(function (v) { v.classList.toggle('is-active', v.id === 'view-' + name); });
-    document.querySelectorAll('.rail-btn[data-view]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-view') === name); });
-    el.crumbView.textContent = name === 'docs' ? 'Documentation' : 'Table editor';
-    el.crumbTable.hidden = el.crumbSep.hidden = name === 'docs';
-    $('.topbar [data-goto="docs"]').hidden = name === 'docs';
+    document.querySelectorAll('.nav-link[data-view]').forEach(function (b) { b.classList.toggle('is-active', b.getAttribute('data-view') === name); });
     setParam('view', name === 'docs' ? 'docs' : null);
     if (name === 'studio') focusInput();
   }
@@ -682,38 +622,12 @@
     if ((b = e.target.closest('[data-table]'))) {
       current = b.getAttribute('data-table'); lastChange = null; setParam('table', current); renderAll(); return;
     }
-    if ((b = e.target.closest('[data-step]'))) {
-      var i = +b.getAttribute('data-step');
-      runMany(TOUR[i][1]).then(function () {
-        var done = tourDone(); if (done.indexOf(i) < 0) done.push(i); setTourDone(done); renderTour();
-      });
-      return;
-    }
     if ((b = e.target.closest('[data-run]'))) { showView('studio'); runMany([b.getAttribute('data-run')]); return; }
     if ((b = e.target.closest('[data-view]'))) { showView(b.getAttribute('data-view')); return; }
-    if ((b = e.target.closest('[data-goto]'))) { showView(b.getAttribute('data-goto')); return; }
     if ((b = e.target.closest('[data-fview]')) && !b.disabled) {
       fileView = b.getAttribute('data-fview'); renderAll(); return;
     }
-    if ((b = e.target.closest('[data-action]'))) { toolbarAction(b.getAttribute('data-action')); }
   });
-
-  function prefill(cmd, hint) {
-    el.input.value = cmd;
-    el.input.focus();
-    el.input.setSelectionRange(cmd.length, cmd.length);
-    if (hint) { info(hint); gap(); scrollConsole(); }
-  }
-
-  function toolbarAction(action) {
-    var t = current ? findTable(current) : null;
-    if (!t) return;
-    if (action === 'insert') prefill('insert ' + t.name + ' ', 'Type one value for each column: ' + t.cols.join(' ') + ' (use "quotes" for spaces), then press Enter.');
-    if (action === 'find') prefill('find ' + t.name + ' ' + t.cols[0] + ' = ', 'Finish the condition, for example: find ' + t.name + ' ' + t.cols[0] + ' = 1');
-    if (action === 'compare') runMany(['compare ' + t.name]);
-    if (action === 'convert') runMany(['convert ' + t.name + ' ' + (t.format === 'text' ? 'binary' : 'text')]);
-    if (action === 'drop') prefill('drop ' + t.name, 'Press Enter to delete the table “' + t.name + '” and its file.');
-  }
 
   $('#btn-clear').addEventListener('click', function () { el.console.innerHTML = ''; el.input.focus(); });
 
@@ -723,55 +637,13 @@
     runMany(cmds.concat(SAMPLE)).then(function () { current = 'students'; lastChange = null; renderAll(); });
   });
 
-  $('#btn-reset').addEventListener('click', function () {
-    var names = allTables().map(function (t) { return t.name; });
-    if (!names.length) return;
-    if (!window.confirm('Delete all ' + plural(names.length, 'table') + ' and their files? This cannot be undone.')) return;
-    setTourDone([]);
-    renderTour();
-    runMany(names.map(function (n) { return 'drop ' + n; }));
-  });
-
-  /* New-table dialog */
-  var dialog = $('#new-table-dialog');
-  var dform = $('#new-table-form');
-  function dialogCommand() {
-    var f = dform.elements;
-    var name = f.name.value.trim() || 'students';
-    var cols = f.cols.value.trim().split(/\s+/).filter(Boolean).join(' ') || 'id name dept marks';
-    return 'create ' + name + ' ' + f.format.value + ' ' + cols;
-  }
-  $('#btn-new-table').addEventListener('click', function () {
-    dform.reset();
-    $('#new-table-preview').textContent = dialogCommand();
-    dialog.showModal();
-  });
-  dform.addEventListener('input', function () { $('#new-table-preview').textContent = dialogCommand(); });
-  dform.addEventListener('submit', function (e) {
-    e.preventDefault();
-    var action = e.submitter ? e.submitter.value : 'create';
-    dialog.close();
-    if (action === 'create') runMany([dialogCommand()]);
-  });
-
   /* ================================================================
    *  Start-up
    * ================================================================ */
-  function setStatus(state, text) {
-    el.pill.classList.remove('is-ready', 'is-error');
-    if (state) el.pill.classList.add('is-' + state);
-    el.status.textContent = text;
-  }
-
   async function boot() {
-    renderTour();
     renderCommandDocs();
-    if (SOURCE_URL) {
-      ['#rail-source', '#docs-source'].forEach(function (s) { $(s).href = SOURCE_URL; });
-    } else {
-      $('#rail-source').hidden = true;
-      $('#docs-source').hidden = true;
-    }
+    if (SOURCE_URL) $('#source-link').href = SOURCE_URL;
+    else $('#source-link').hidden = true;
 
     try {
       M = await createFileDB({
@@ -782,21 +654,17 @@
       try { M.FS.mount(M.IDBFS, {}, DATA); } catch (e) { saved = false; }
       await sync(true);
     } catch (e) {
-      setStatus('error', 'C engine failed to load');
       info('The C engine could not start: ' + e + '. Try a recent Chrome, Edge, Firefox or Safari.');
       return;
     }
 
-    setStatus('ready', 'C engine ready');
     setInputEnabled(true);
     var tables = allTables();
     var wanted = new URLSearchParams(location.search).get('table');     /* ?table=books opens that table */
     if (tables.length) current = tables.some(function (t) { return t.name === wanted; }) ? wanted : tables[0].name;
 
-    info('FileDB is running. Each command you type here is passed to the C function execute(), compiled to WebAssembly.');
-    info(tables.length ? 'Your tables from last time were loaded from this browser\'s storage.'
-                       : 'Type help to see every command, or click “Load sample data” on the left.');
-    if (!saved) info('Note: this browser is not allowing storage, so tables will be lost when you close the tab.');
+    info('Type help to see all commands.');
+    if (!saved) info('This browser blocks storage, so tables are lost when you close the tab.');
     gap();
     renderAll();
     await demo();

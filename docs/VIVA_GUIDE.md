@@ -367,5 +367,5 @@ We compile the same C files to WebAssembly with Emscripten. JavaScript calls our
 4. Type `update students set marks 100 where id = 3` and point at the file: *"The text file had to be rewritten. Everything after the change moved."*
 5. Click **books** and switch to the binary file: *"Header with FDB1, then fixed 32-byte slots."* Point at a byte to show its explanation.
 6. Type `update books set price 350 where id = 2`: *"Only one byte changed. `fseek()` jumped straight to that record."*
-7. Click **Compare formats**: *"Text is smaller; binary gives fixed-size records and in-place updates."*
+7. Type `compare students`: *"Text is smaller; binary gives fixed-size records and in-place updates."*
 8. Finish in the terminal: `make test` → *"34 automatic tests pass."*

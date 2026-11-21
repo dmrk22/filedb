@@ -3,111 +3,57 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FileDB Studio: a file-based data engine in C</title>
+  <title>FileDB: a file-based data engine in C</title>
   <meta name="description" content="Store, query and update records in plain text or binary files. A C class project compiled to WebAssembly, running in your browser.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <meta name="theme-color" content="#ffffff">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <a class="skip-link" href="#console-input">Skip to the console</a>
 <div class="shell">
 
-  <!-- ===== Icon rail (left) ===== -->
-  <nav class="rail" aria-label="Main">
-    <a class="rail-logo" href="#" aria-label="FileDB">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5h9.5L20 8v12.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 20.5v-16A2 2 0 0 1 5 2.5Z" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7.5" y="10" width="3" height="3" rx=".6" fill="currentColor"/><rect x="11.5" y="10" width="3" height="3" rx=".6" fill="currentColor" opacity=".55"/><rect x="7.5" y="14.5" width="3" height="3" rx=".6" fill="currentColor" opacity=".55"/><rect x="11.5" y="14.5" width="3" height="3" rx=".6" fill="currentColor" opacity=".3"/></svg>
-    </a>
-    <button class="rail-btn is-active" data-view="studio" aria-label="Table editor" title="Table editor">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M9.5 9.5v10" stroke="currentColor" stroke-width="1.6"/></svg>
-    </button>
-    <button class="rail-btn" data-view="docs" aria-label="Documentation" title="Documentation">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H18v15H6.5A1.5 1.5 0 0 0 5 19.5v-15Z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 19.5A1.5 1.5 0 0 0 6.5 21H18v-3M8.5 7.5h6M8.5 11h6" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>
-    </button>
-    <div class="rail-spacer"></div>
-    <a class="rail-btn" id="rail-source" href="#" target="_blank" rel="noopener" aria-label="Source code" title="Source code">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 8-4 4 4 4M15.5 8l4 4-4 4M13.5 5.5l-3 13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </a>
-  </nav>
-
   <!-- ===== Top bar ===== -->
   <header class="topbar">
-    <div class="crumbs">
-      <span class="crumb-brand">FileDB</span>
-      <span class="crumb-sep">/</span>
-      <span class="crumb" id="crumb-view">Table editor</span>
-      <span class="crumb-sep" id="crumb-sep2">/</span>
-      <span class="crumb crumb-strong" id="crumb-table">no table</span>
-    </div>
-    <div class="topbar-right">
-      <span class="pill" id="engine-pill" role="status" aria-live="polite"><span class="pill-dot"></span><span id="engine-status">Starting C engine…</span></span>
-      <button class="btn btn-ghost" data-goto="docs" type="button">How it works</button>
-    </div>
+    <span class="brand">FileDB</span>
+    <nav class="nav" aria-label="Main">
+      <button class="nav-link is-active" data-view="studio" type="button">Editor</button>
+      <button class="nav-link" data-view="docs" type="button">How it works</button>
+      <a class="nav-link" id="source-link" href="#" target="_blank" rel="noopener">GitHub</a>
+    </nav>
   </header>
 
-  <!-- ===== STUDIO VIEW ===== -->
-  <section class="view view-studio is-active" id="view-studio" aria-label="Table editor">
+  <!-- ===== EDITOR VIEW ===== -->
+  <section class="view view-studio is-active" id="view-studio" aria-label="Editor">
 
-    <!-- Secondary sidebar: tables + quick start -->
     <aside class="side">
-      <div class="side-section">
-        <div class="side-head">
-          <h2>Tables</h2>
-          <button class="icon-btn" id="btn-new-table" type="button" title="New table" aria-label="New table">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          </button>
-        </div>
-        <ul class="table-list" id="table-list"></ul>
-        <div class="side-actions">
-          <button class="btn btn-brand btn-block" id="btn-sample" type="button">Load sample data</button>
-          <button class="btn btn-ghost btn-block" id="btn-reset" type="button">Delete all tables</button>
-        </div>
-      </div>
-
-      <div class="side-section side-tour">
-        <div class="side-head"><h2>Quick start</h2><span class="side-count" id="tour-count">0/12</span></div>
-        <ol class="tour" id="tour"></ol>
-      </div>
+      <h2 class="side-title">Tables</h2>
+      <ul class="table-list" id="table-list"></ul>
+      <button class="btn btn-brand btn-block" id="btn-sample" type="button">Load sample data</button>
     </aside>
 
-    <!-- Main work area -->
     <div class="work">
-
-      <!-- Table header + toolbar -->
       <div class="table-bar">
-        <div class="table-title">
-          <h1 id="table-name">Select a table</h1>
-          <span class="badge" id="table-format" hidden></span>
-          <span class="table-stats" id="table-stats"></span>
-        </div>
-        <div class="toolbar" id="toolbar">
-          <button class="btn btn-brand" data-action="insert" type="button" disabled>Insert row</button>
-          <button class="btn btn-ghost" data-action="find" type="button" disabled>Filter</button>
-          <button class="btn btn-ghost" data-action="compare" type="button" disabled>Compare formats</button>
-          <button class="btn btn-ghost" data-action="convert" type="button" disabled>Convert</button>
-          <button class="btn btn-ghost btn-danger" data-action="drop" type="button" disabled>Drop</button>
-        </div>
+        <h1 id="table-name">No table selected</h1>
+        <span class="badge" id="table-format" hidden></span>
+        <span class="table-stats" id="table-stats"></span>
       </div>
 
-      <!-- Records grid -->
       <div class="grid-wrap" id="grid-wrap">
         <div class="empty" id="grid-empty">
-          <h2>No table selected</h2>
-          <p>Load the sample data, or create a table in the console below:</p>
+          <p>Load the sample data, or create a table in the console:</p>
           <code>create students text id name dept marks</code>
         </div>
         <table class="grid" id="grid" hidden></table>
       </div>
 
-      <!-- Bottom panels: console + file inspector -->
       <div class="panels">
         <div class="panel panel-console">
           <div class="panel-head">
             <h2>Console</h2>
-            <span class="panel-note">every command runs the real C code</span>
             <button class="icon-btn" id="btn-clear" type="button" title="Clear console" aria-label="Clear console">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 11v6M14 11v6M6.5 7l1 12.5h9L17.5 7M9.5 7V4.5h5V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
             </button>
@@ -115,7 +61,7 @@
           <div class="console-out" id="console" role="log" aria-live="polite" tabindex="0" translate="no"></div>
           <form class="console-in" id="console-form" autocomplete="off">
             <label class="prompt" for="console-input" translate="no">filedb&gt;</label>
-            <input id="console-input" name="command" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Type a command, e.g. help…" disabled>
+            <input id="console-input" name="command" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="Type a command, e.g. help" disabled>
             <button class="btn btn-brand btn-sm" id="btn-run" type="submit" disabled>Run</button>
           </form>
         </div>
@@ -123,188 +69,111 @@
         <div class="panel panel-file">
           <div class="panel-head">
             <h2>File on disk</h2>
-            <span class="panel-note mono" id="file-path">—</span>
+            <span class="panel-note mono" id="file-path"></span>
             <div class="seg" id="view-toggle" role="group" aria-label="File view">
               <button type="button" data-fview="readable" aria-pressed="true">Readable</button>
               <button type="button" data-fview="bytes" aria-pressed="false">Bytes</button>
             </div>
           </div>
           <div class="file-change" id="file-change" aria-live="polite"></div>
-          <div class="file-body" id="file-body" translate="no"><p class="muted-note">The selected table's file appears here.</p></div>
-          <div class="file-foot">
-            <div class="file-inspect mono" id="file-inspect">Point at a byte to see what it stores.</div>
-            <ul class="legend" id="legend"></ul>
-          </div>
+          <div class="file-body" id="file-body" translate="no"></div>
+          <div class="file-inspect mono" id="file-inspect"></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ===== DOCS VIEW ===== -->
-  <section class="view view-docs" id="view-docs" aria-label="Documentation">
+  <!-- ===== HOW IT WORKS VIEW ===== -->
+  <section class="view view-docs" id="view-docs" aria-label="How it works">
     <div class="docs">
 
       <header class="docs-hero">
-        <p class="docs-kicker">Class project in C</p>
         <h1>Store, query and update records in plain text or binary files.</h1>
-        <p class="docs-lede">FileDB is a small database engine written in C. The same C code runs in your terminal and, compiled to WebAssembly, in this page. Every table is one file, and you choose whether that file is text or binary.</p>
-        <div class="docs-cta">
-          <button class="btn btn-brand" data-goto="studio" type="button">Open the table editor</button>
-          <a class="btn btn-ghost" id="docs-source" href="#" target="_blank" rel="noopener">View source code</a>
-        </div>
-        <dl class="facts">
-          <div><dt>Language</dt><dd>C99, standard library only</dd></div>
-          <div><dt>Source</dt><dd>4 files</dd></div>
-          <div><dt>Commands</dt><dd>14</dd></div>
-          <div><dt>Tests</dt><dd>34 automatic checks</dd></div>
-        </dl>
+        <p class="docs-lede">FileDB is a small database engine written in C. The same C code runs in the terminal and, compiled to WebAssembly, on this page. Each table is one file, stored as text or binary.</p>
       </header>
 
-      <nav class="docs-toc" aria-label="On this page">
-        <a href="#d-how">How a command runs</a>
-        <a href="#d-formats">Text vs binary</a>
-        <a href="#d-commands">Commands</a>
-        <a href="#d-code">The code</a>
-        <a href="#d-run">Run it yourself</a>
-      </nav>
-
-      <section class="doc-sec" id="d-how">
-        <h2>What happens when you press Enter</h2>
-        <p class="doc-intro">Every command goes through the same four steps.</p>
+      <section class="doc-sec">
+        <h2>How a command runs</h2>
         <ol class="steps">
           <li>
             <h3>Split the line into words</h3>
-            <p><code>tokenize()</code> breaks the line at spaces. Text inside double quotes stays together as one word.</p>
+            <p><code>tokenize()</code> splits at spaces. Text in double quotes stays one word.</p>
             <div class="tokens"><span>find</span><span>students</span><span>marks</span><span>&gt;</span><span>80</span></div>
           </li>
           <li>
-            <h3>Load the table into memory</h3>
-            <p><code>load_table()</code> opens <code>data/students.txt</code> (or <code>.bin</code>) and reads every record into a <code>Table</code> struct.</p>
-            <pre class="code-mini"><code>typedef struct {
-    char values[MAX_COLS][MAX_LEN];  /* 10 x 32 */
-} Record;</code></pre>
+            <h3>Load the table</h3>
+            <p><code>load_table()</code> reads the file into a <code>Table</code> struct in memory.</p>
           </li>
           <li>
             <h3>Do the work</h3>
-            <p><code>find</code> checks every record one by one (linear search). <code>sort</code> uses bubble sort. Numbers are compared as numbers, so 9 comes before 78.</p>
+            <p><code>find</code> uses linear search, <code>sort</code> uses bubble sort. Numbers compare as numbers, so 9 &lt; 78.</p>
           </li>
           <li>
-            <h3>Save the result to the file</h3>
-            <p>Each change is saved the cheapest way the format allows:</p>
+            <h3>Save to the file</h3>
             <ul class="ticks">
-              <li><strong>Insert</strong> appends one record to the end of the file (<code>fopen</code> mode <code>"a"</code>).</li>
-              <li><strong>Update, binary file</strong> jumps to that record with <code>fseek()</code> and overwrites only it.</li>
-              <li><strong>Update or delete, text file</strong> rewrites the whole file, because lines have different lengths.</li>
+              <li><strong>Insert</strong> appends to the end of the file.</li>
+              <li><strong>Update (binary)</strong> jumps to the record with <code>fseek()</code> and overwrites only it.</li>
+              <li><strong>Update or delete (text)</strong> rewrites the whole file.</li>
             </ul>
           </li>
         </ol>
       </section>
 
-      <section class="doc-sec" id="d-formats">
-        <h2>The same records, stored two ways</h2>
-        <p class="doc-intro">You pick the format when you create a table, and can switch later with <code>convert</code>.</p>
+      <section class="doc-sec">
+        <h2>Text vs binary</h2>
         <div class="formats">
           <article class="card">
-            <div class="card-head"><h3>Plain text</h3><code>students.txt</code></div>
+            <div class="card-head"><h3>Text</h3><code>students.txt</code></div>
             <pre class="sample"><span class="t-head">id,name,marks</span><span class="t-nl">↵</span>
 1,Ravi,85<span class="t-nl">↵</span>
 2,Anita,92<span class="t-nl">↵</span></pre>
             <p class="size">35 bytes</p>
-            <ul class="pc">
-              <li class="pro">Opens in Notepad or Excel.</li>
-              <li class="pro">Small: only the characters you typed are saved.</li>
-              <li class="con">Lines have different lengths, so changing one value means rewriting the file.</li>
-            </ul>
+            <p class="card-note">Readable and small, but lines have different lengths, so a change rewrites the file.</p>
           </article>
           <article class="card">
             <div class="card-head"><h3>Binary</h3><code>students.bin</code></div>
             <pre class="sample"><span class="b-magic">46 44 42 31</span> <span class="b-count">03 00 00 00</span>
-<span class="b-cols">69 64 00 00 …</span> <span class="b-zero">32 bytes per column name</span>
+<span class="b-cols">69 64 00 00 …</span> <span class="b-zero">32 bytes per name</span>
 <span class="b-rec">31 00 00 00 …</span> <span class="b-zero">32 bytes per value</span></pre>
             <p class="size">296 bytes</p>
-            <ul class="pc">
-              <li class="pro">Every record is exactly the same size.</li>
-              <li class="pro">So the program can jump straight to record N and change it in place.</li>
-              <li class="con">Bigger, because unused space is filled with zeros. Not readable by people.</li>
-            </ul>
+            <p class="card-note">Bigger, but every record is the same size, so any record can be changed in place.</p>
           </article>
         </div>
         <div class="formula">
-          <code>position of record N = header size + N × record size</code>
-          <p>Records are numbered from 0. With 3 columns, the header is 4 (<code>FDB1</code>) + 4 (column count) + 3 × 32 = 104 bytes, and each record is 3 × 32 = 96 bytes. So record 1 (Anita) starts at byte 104 + 1 × 96 = 200.</p>
+          <code>position of record N = header + N × record size</code>
+          <p>With 3 columns: header = 4 + 4 + 3 × 32 = 104 bytes, record = 3 × 32 = 96 bytes. Record 1 starts at byte 200.</p>
         </div>
       </section>
 
-      <section class="doc-sec" id="d-commands">
-        <h2>All commands</h2>
-        <p class="doc-intro">Click an example to run it in the table editor.</p>
+      <section class="doc-sec">
+        <h2>Commands</h2>
         <div class="table-scroll">
           <table class="cmd-table">
-            <thead><tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Example</th></tr></thead>
+            <thead><tr><th scope="col">Command</th><th scope="col">What it does</th><th scope="col">Try it</th></tr></thead>
             <tbody id="cmd-rows"></tbody>
           </table>
         </div>
-        <p class="doc-note">Operators: <code>=</code> <code>!=</code> <code>&gt;</code> <code>&lt;</code> <code>&gt;=</code> <code>&lt;=</code> <code>contains</code>. Put values with spaces in double quotes, like <code>"Anita Sharma"</code>.</p>
+        <p class="doc-note">Operators: <code>=</code> <code>!=</code> <code>&gt;</code> <code>&lt;</code> <code>&gt;=</code> <code>&lt;=</code> <code>contains</code>. Use quotes for values with spaces.</p>
       </section>
 
-      <section class="doc-sec" id="d-code">
-        <h2>Inside the code</h2>
-        <p class="doc-intro">Four files, each with one job.</p>
+      <section class="doc-sec">
+        <h2>The code</h2>
         <div class="files">
-          <div class="card file-card"><code>filedb.h</code><p>Shared definitions: the <code>Record</code> and <code>Table</code> structs, the size limits, and the list of functions.</p></div>
-          <div class="card file-card"><code>storage.c</code><p>Everything that touches files: load, save, append, and in-place overwrite with <code>fseek()</code>.</p></div>
-          <div class="card file-card"><code>commands.c</code><p>Understands what you typed: splits it into words, checks it, and runs the command.</p></div>
-          <div class="card file-card"><code>main.c</code><p>The terminal loop: show a prompt, read a line, run it, repeat. This web page calls <code>execute()</code> directly instead.</p></div>
+          <div class="card file-card"><code>filedb.h</code><p>The <code>Record</code> and <code>Table</code> structs and the limits.</p></div>
+          <div class="card file-card"><code>storage.c</code><p>Reads and writes the files: load, save, append, <code>fseek()</code> overwrite.</p></div>
+          <div class="card file-card"><code>commands.c</code><p>Splits the line into words and runs the command.</p></div>
+          <div class="card file-card"><code>main.c</code><p>The terminal loop. This page calls <code>execute()</code> instead.</p></div>
         </div>
-        <dl class="limits">
-          <div><dt>Columns per table</dt><dd>up to 10</dd></div>
-          <div><dt>Records per table</dt><dd>up to 1000</dd></div>
-          <div><dt>Characters per value</dt><dd>up to 31</dd></div>
-          <div><dt>Where tables are saved</dt><dd><code>data/</code> folder (here: your browser's storage)</dd></div>
-        </dl>
-      </section>
-
-      <section class="doc-sec" id="d-run">
-        <h2>Run it on your computer</h2>
-        <p class="doc-intro">You need a C compiler (gcc or clang) and <code>make</code>.</p>
-<pre class="code-block"><code><span class="c"># build and start the program</span>
+<pre class="code-block"><code><span class="c"># build, run, test</span>
 make
 ./filedb
-
-<span class="c"># run the 34 automatic tests</span>
-make test
-
-<span class="c"># rebuild this web version (needs Emscripten)</span>
-make web</code></pre>
+make test</code></pre>
       </section>
-
-      <footer class="docs-foot">
-        <p>FileDB: a simple file-based data engine in C. A class project.</p>
-      </footer>
     </div>
   </section>
 </div>
 
-<!-- New-table dialog -->
-<dialog class="dialog" id="new-table-dialog">
-  <form method="dialog" id="new-table-form">
-    <h2>Create a new table</h2>
-    <label>Table name<input name="name" required pattern="[A-Za-z][A-Za-z0-9_]{0,30}" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="e.g. students…"></label>
-    <label>Columns <span class="hint">separated by spaces</span><input name="cols" required autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="e.g. id name dept marks…"></label>
-    <fieldset>
-      <legend>Store it as</legend>
-      <label class="radio"><input type="radio" name="format" value="text" checked> Text file <span class="hint">readable, smaller</span></label>
-      <label class="radio"><input type="radio" name="format" value="binary"> Binary file <span class="hint">fixed-size records</span></label>
-    </fieldset>
-    <p class="dialog-preview mono" id="new-table-preview">create students text id name dept marks</p>
-    <div class="dialog-actions">
-      <button class="btn btn-ghost" value="cancel" type="submit" formnovalidate>Cancel</button>
-      <button class="btn btn-brand" value="create" type="submit">Create table</button>
-    </div>
-  </form>
-</dialog>
-
-<script src="filedb.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="filedb.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

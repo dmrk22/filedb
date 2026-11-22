@@ -198,7 +198,7 @@ FileDB/
 │   ├── commands.c     understands what you typed and runs the command
 │   └── main.c         terminal loop: prompt -> read line -> run -> repeat
 ├── tests/
-│   └── run_tests.sh   34 automatic tests
+│   └── run_tests.sh   35 automatic tests
 ├── web/               the website (C compiled to WebAssembly + HTML/CSS/JS)
 ├── docs/
 │   └── VIVA_GUIDE.md  plain-language explanation of every part, with likely questions
@@ -258,7 +258,7 @@ make test
 The test script sends commands to `./filedb` and checks the output. It covers every command, both file formats, data surviving a restart, the file layout (magic bytes, header line), and error handling (wrong value count, unknown table/column/operator, commas in values, values that are too long, `../` path tricks).
 
 ```text
-Result: 34 passed, 0 failed.
+Result: 35 passed, 0 failed.
 ```
 
 ---
@@ -273,7 +273,7 @@ These limits keep the code simple. They are set in `src/filedb.h` and can be cha
 | Records per table | 1000 |
 | Characters per value | 31 |
 | Table and column names | Start with a letter, then letters, digits or `_` |
-| Values | No commas (the comma separates values in text files) |
+| Values | Not empty, no commas (the comma separates values in text files) |
 
 ---
 

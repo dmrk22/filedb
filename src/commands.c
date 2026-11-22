@@ -1,10 +1,10 @@
 /*
  * commands.c  -  Understands what the user typed and runs it.
  *
- * Every command follows the same 3 steps:
- *   1. TOKENIZE : split the line into words ("tokens")
- *   2. LOAD     : read the table's file into memory
- *   3. ACT      : search / change the records, then save back to the file
+ * Every command works the same way:
+ *   1. tokenize()     split the line into words
+ *   2. open_table()   read the table's file into memory
+ *   3. cmd_xxx()      do the work, then save the file if something changed
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,47 +13,40 @@
 #include <dirent.h>
 #include "filedb.h"
 
-/* The table we are working on. It is 'static' (global) because it is
- * about 320 KB - too big to safely put on the function call stack.     */
-static Table table;
+#define WORD_LEN 64   /* longer than MAX_LEN, so a too-long value is noticed, not cut */
 
-/* The words of the current command, e.g. {"find","students","marks",">","80"} */
-static char tok[MAX_TOKENS][64];
-static int  ntok;
-
-/* A condition such as:  marks > 80  */
-typedef struct {
-    int  col;              /* which column to look at  */
-    char op[16];           /* =  !=  >  <  >=  <=  contains */
-    char value[MAX_LEN];   /* the value to compare with */
-} Condition;
+/* Global variables, shared by all commands. A Table is about 320 KB:
+   too big for the stack, so it lives here instead.                     */
+static Table table;                       /* the table we are working on        */
+static char  tok[MAX_TOKENS][WORD_LEN];   /* the words of the command           */
+static int   ntok;                        /* how many words                     */
+static int   selected[MAX_RECORDS];       /* selected[i] = 1 if record i matches */
 
 /* =====================================================================
- *  STEP 1 : TOKENIZER
- *  Splits a line into words. Text in "double quotes" stays one word,
- *  so  insert students 1 "Ravi Kumar" 85  gives 5 words.
+ *  Step 1: split the line into words
+ *  insert students 1 "Ravi Kumar" 85   ->   insert | students | 1 | Ravi Kumar | 85
  * ===================================================================== */
 static void tokenize(const char *line)
 {
     const char *p = line;
     ntok = 0;
 
-    while (*p != '\0' && ntok < MAX_TOKENS) {
+    while (ntok < MAX_TOKENS) {
         int len = 0;
 
-        while (isspace((unsigned char)*p)) p++;        /* skip spaces */
-        if (*p == '\0') break;
+        while (isspace((unsigned char)*p)) p++;       /* skip spaces */
+        if (*p == '\0') break;                        /* end of line */
 
-        if (*p == '"') {                               /* quoted word */
+        if (*p == '"') {                              /* "quoted words" stay together */
             p++;
             while (*p != '\0' && *p != '"') {
-                if (len < 63) tok[ntok][len++] = *p;
+                if (len < WORD_LEN - 1) tok[ntok][len++] = *p;
                 p++;
             }
-            if (*p == '"') p++;
-        } else {                                       /* normal word */
+            if (*p == '"') p++;                       /* skip the closing quote */
+        } else {                                      /* a normal word ends at a space */
             while (*p != '\0' && !isspace((unsigned char)*p)) {
-                if (len < 63) tok[ntok][len++] = *p;
+                if (len < WORD_LEN - 1) tok[ntok][len++] = *p;
                 p++;
             }
         }
@@ -63,11 +56,10 @@ static void tokenize(const char *line)
 }
 
 /* =====================================================================
- *  SMALL HELPERS
+ *  Small helpers
  * ===================================================================== */
 
-/* Table/column names: start with a letter, then letters, digits and _ only
- * (so nobody can type "../" to reach files outside the data folder).     */
+/* Names: start with a letter, then letters, digits or _ (so "../" is impossible). */
 static int valid_name(const char *s)
 {
     int i;
@@ -77,31 +69,51 @@ static int valid_name(const char *s)
     return 1;
 }
 
-/* Values must fit in MAX_LEN and must not contain a comma
- * (the comma separates values in the text file).            */
+/* Values: 1 to 31 characters, no comma (the comma separates values in text files). */
 static int valid_value(const char *s)
 {
-    if (strlen(s) >= MAX_LEN) {
-        printf("Error: value \"%s\" is too long (max %d characters).\n", s, MAX_LEN - 1);
-        return 0;
-    }
-    if (strchr(s, ',') != NULL) {
-        printf("Error: values cannot contain a comma.\n");
-        return 0;
-    }
+    if (s[0] == '\0')           { printf("Error: values cannot be empty.\n"); return 0; }
+    if (strlen(s) >= MAX_LEN)   { printf("Error: value \"%s\" is too long (max %d characters).\n", s, MAX_LEN - 1); return 0; }
+    if (strchr(s, ',') != NULL) { printf("Error: values cannot contain a comma.\n"); return 0; }
     return 1;
 }
 
-/* Returns the position of a column by its name, or -1 if not found. */
-static int column_index(Table *t, const char *name)
+/* "text" -> FORMAT_TEXT, "binary" -> FORMAT_BINARY, anything else -> -1 */
+static int parse_format(const char *s)
 {
-    int i;
-    for (i = 0; i < t->num_cols; i++)
-        if (strcmp(t->cols[i], name) == 0) return i;
+    if (strcmp(s, "text") == 0)   return FORMAT_TEXT;
+    if (strcmp(s, "binary") == 0) return FORMAT_BINARY;
+    printf("Error: format must be 'text' or 'binary'.\n");
     return -1;
 }
 
-/* Returns 1 if the string is a number like 42, -7 or 3.5 */
+static const char *format_name(int format)
+{
+    return format == FORMAT_TEXT ? "text" : "binary";
+}
+
+/* Position of a column ("marks" -> 3), or -1 if there is no such column. */
+static int column_index(const char *name)
+{
+    int c;
+    for (c = 0; c < table.num_cols; c++)
+        if (strcmp(table.cols[c], name) == 0) return c;
+    return -1;
+}
+
+/* Read a table into `table`. Prints an error if it does not exist. */
+static int open_table(const char *name)
+{
+    if (valid_name(name) && load_table(name, &table)) return 1;
+    printf("Error: table '%s' does not exist. Type 'tables' to see all tables.\n", name);
+    return 0;
+}
+
+/* =====================================================================
+ *  Conditions:  <column> <op> <value>     e.g.   marks > 80
+ * ===================================================================== */
+
+/* Is this text a number, like 42 or 3.5? (strtod must use up the whole text) */
 static int is_number(const char *s)
 {
     char *end;
@@ -110,113 +122,117 @@ static int is_number(const char *s)
     return *end == '\0';
 }
 
-/* Compares two values. Numbers are compared as numbers (so 9 < 10),
- * everything else alphabetically. Returns <0, 0 or >0 like strcmp(). */
+/* Compare two values: as numbers if both are numbers (so 9 < 78), otherwise as text.
+   Returns a negative number, 0, or a positive number, like strcmp().                 */
 static int compare_values(const char *a, const char *b)
 {
     if (is_number(a) && is_number(b)) {
         double x = atof(a), y = atof(b);
-        return (x > y) - (x < y);
+        if (x < y) return -1;
+        if (x > y) return 1;
+        return 0;
     }
     return strcmp(a, b);
 }
 
-/* Does 'value' satisfy the condition? */
-static int matches(const char *value, Condition *c)
+static int valid_operator(const char *op)
 {
-    int r;
-    if (strcmp(c->op, "contains") == 0) return strstr(value, c->value) != NULL;
-
-    r = compare_values(value, c->value);
-    if (strcmp(c->op, "=")  == 0) return r == 0;
-    if (strcmp(c->op, "!=") == 0) return r != 0;
-    if (strcmp(c->op, ">")  == 0) return r >  0;
-    if (strcmp(c->op, "<")  == 0) return r <  0;
-    if (strcmp(c->op, ">=") == 0) return r >= 0;
-    if (strcmp(c->op, "<=") == 0) return r <= 0;
+    const char *ops[] = { "=", "!=", ">", "<", ">=", "<=", "contains" };
+    int i;
+    for (i = 0; i < 7; i++)
+        if (strcmp(op, ops[i]) == 0) return 1;
     return 0;
 }
 
-/* Reads "<column> <op> <value>" from the tokens starting at 'start'. */
-static int parse_condition(int start, Condition *c)
+/* Is "value op target" true?   e.g.  matches("85", ">", "80")  ->  1 */
+static int matches(const char *value, const char *op, const char *target)
 {
-    const char *ops[] = { "=", "!=", ">", "<", ">=", "<=", "contains" };
-    int i, ok = 0;
+    int r;
+    if (strcmp(op, "contains") == 0) return strstr(value, target) != NULL;
 
-    c->col = column_index(&table, tok[start]);
-    if (c->col < 0) {
-        printf("Error: no column named '%s' in table '%s'.\n", tok[start], table.name);
-        return 0;
-    }
-    for (i = 0; i < 7; i++)
-        if (strcmp(tok[start + 1], ops[i]) == 0) ok = 1;
-    if (!ok) {
-        printf("Error: unknown operator '%s'. Use = != > < >= <= contains\n", tok[start + 1]);
-        return 0;
-    }
-    strcpy(c->op, tok[start + 1]);
-    snprintf(c->value, MAX_LEN, "%s", tok[start + 2]);
-    return 1;
+    r = compare_values(value, target);
+    if (strcmp(op, "=")  == 0) return r == 0;
+    if (strcmp(op, "!=") == 0) return r != 0;
+    if (strcmp(op, ">")  == 0) return r > 0;
+    if (strcmp(op, "<")  == 0) return r < 0;
+    if (strcmp(op, ">=") == 0) return r >= 0;
+    return r <= 0;                                   /* "<=" */
 }
 
-/* Loads a table into the global 'table'. Prints an error if missing. */
-static int open_table(const char *name)
+/*
+ * Mark the records that match the condition written in words tok[w], tok[w+1], tok[w+2].
+ * Linear search: every record is checked one by one.
+ * Returns how many matched, or -1 if the column or operator is wrong.
+ */
+static int select_where(int w)
 {
-    if (!valid_name(name) || !load_table(name, &table)) {
-        printf("Error: table '%s' does not exist. Type 'tables' to see all tables.\n", name);
-        return 0;
+    int col = column_index(tok[w]);
+    int i, count = 0;
+
+    if (col < 0) {
+        printf("Error: no column named '%s' in table '%s'.\n", tok[w], table.name);
+        return -1;
     }
-    return 1;
+    if (!valid_operator(tok[w + 1])) {
+        printf("Error: unknown operator '%s'. Use = != > < >= <= contains\n", tok[w + 1]);
+        return -1;
+    }
+    for (i = 0; i < table.num_records; i++) {
+        selected[i] = matches(table.records[i].values[col], tok[w + 1], tok[w + 2]);
+        count += selected[i];
+    }
+    return count;
 }
 
-static const char *format_name(int format)
+static void select_all(void)
 {
-    return format == FORMAT_TEXT ? "text" : "binary";
+    int i;
+    for (i = 0; i < table.num_records; i++) selected[i] = 1;
 }
 
-/* Prints a line like  +------+--------+  */
-static void print_border(int widths[], int n)
+/* =====================================================================
+ *  Printing the selected records as a box
+ * ===================================================================== */
+static void print_border(int width[])
 {
     int c, i;
-    for (c = 0; c < n; c++) {
+    for (c = 0; c < table.num_cols; c++) {
         printf("+");
-        for (i = 0; i < widths[c] + 2; i++) printf("-");
+        for (i = 0; i < width[c] + 2; i++) printf("-");
     }
     printf("+\n");
 }
 
-/* Prints the records whose show[i] is 1, as a neat box table. */
-static void print_records(int show[])
+static void print_records(void)
 {
-    int widths[MAX_COLS];
+    int width[MAX_COLS];
     int c, i, shown = 0;
 
-    /* Each column is as wide as its longest value. */
+    /* each column is as wide as its longest value */
     for (c = 0; c < table.num_cols; c++) {
-        widths[c] = (int)strlen(table.cols[c]);
+        width[c] = (int)strlen(table.cols[c]);
         for (i = 0; i < table.num_records; i++)
-            if (show[i] && (int)strlen(table.records[i].values[c]) > widths[c])
-                widths[c] = (int)strlen(table.records[i].values[c]);
+            if (selected[i] && (int)strlen(table.records[i].values[c]) > width[c])
+                width[c] = (int)strlen(table.records[i].values[c]);
     }
 
-    print_border(widths, table.num_cols);
-    for (c = 0; c < table.num_cols; c++) printf("| %-*s ", widths[c], table.cols[c]);
+    print_border(width);
+    for (c = 0; c < table.num_cols; c++) printf("| %-*s ", width[c], table.cols[c]);
     printf("|\n");
-    print_border(widths, table.num_cols);
+    print_border(width);
 
     for (i = 0; i < table.num_records; i++) {
-        if (!show[i]) continue;
-        for (c = 0; c < table.num_cols; c++)
-            printf("| %-*s ", widths[c], table.records[i].values[c]);
+        if (!selected[i]) continue;
+        for (c = 0; c < table.num_cols; c++) printf("| %-*s ", width[c], table.records[i].values[c]);
         printf("|\n");
         shown++;
     }
-    if (shown > 0) print_border(widths, table.num_cols);
+    if (shown > 0) print_border(width);
     printf("%d record(s) found.\n", shown);
 }
 
 /* =====================================================================
- *  THE COMMANDS
+ *  The commands
  * ===================================================================== */
 
 static void cmd_help(void)
@@ -240,9 +256,10 @@ static void cmd_help(void)
            "Tip: use \"double quotes\" for values with spaces.\n");
 }
 
+/* create students text id name marks */
 static void cmd_create(void)
 {
-    int format, i;
+    int format, c;
 
     if (ntok < 4) { printf("Usage: create <table> <text|binary> <col1> <col2> ...\n"); return; }
     if (!valid_name(tok[1])) {
@@ -250,20 +267,17 @@ static void cmd_create(void)
         return;
     }
     if (find_table(tok[1], &format)) { printf("Error: table '%s' already exists.\n", tok[1]); return; }
-
-    if      (strcmp(tok[2], "text")   == 0) format = FORMAT_TEXT;
-    else if (strcmp(tok[2], "binary") == 0) format = FORMAT_BINARY;
-    else { printf("Error: format must be 'text' or 'binary'.\n"); return; }
-
+    format = parse_format(tok[2]);
+    if (format < 0) return;
     if (ntok - 3 > MAX_COLS) { printf("Error: at most %d columns.\n", MAX_COLS); return; }
 
     memset(&table, 0, sizeof(Table));
     strcpy(table.name, tok[1]);
     table.format = format;
     table.num_cols = ntok - 3;
-    for (i = 0; i < table.num_cols; i++) {
-        if (!valid_name(tok[i + 3])) { printf("Error: bad column name '%s'.\n", tok[i + 3]); return; }
-        strcpy(table.cols[i], tok[i + 3]);
+    for (c = 0; c < table.num_cols; c++) {
+        if (!valid_name(tok[c + 3])) { printf("Error: bad column name '%s'.\n", tok[c + 3]); return; }
+        strcpy(table.cols[c], tok[c + 3]);
     }
 
     if (!save_table(&table)) { printf("Error: could not create the file.\n"); return; }
@@ -271,6 +285,7 @@ static void cmd_create(void)
            table.name, table.num_cols, format_name(format));
 }
 
+/* insert students 1 Ravi 85 */
 static void cmd_insert(void)
 {
     Record r;
@@ -278,7 +293,6 @@ static void cmd_insert(void)
 
     if (ntok < 2) { printf("Usage: insert <table> <value1> <value2> ...\n"); return; }
     if (!open_table(tok[1])) return;
-
     if (ntok - 2 != table.num_cols) {
         printf("Error: table '%s' has %d column(s) but you gave %d value(s).\n",
                table.name, table.num_cols, ntok - 2);
@@ -286,7 +300,7 @@ static void cmd_insert(void)
     }
     if (table.num_records >= MAX_RECORDS) { printf("Error: table is full (%d records).\n", MAX_RECORDS); return; }
 
-    memset(&r, 0, sizeof r);    /* zero-fill, so no garbage bytes reach the file */
+    memset(&r, 0, sizeof r);                 /* all zeros: no leftover bytes reach the file */
     for (c = 0; c < table.num_cols; c++) {
         if (!valid_value(tok[c + 2])) return;
         strcpy(r.values[c], tok[c + 2]);
@@ -296,131 +310,116 @@ static void cmd_insert(void)
     printf("OK: 1 record inserted into '%s' (appended to the end of the file).\n", table.name);
 }
 
+/* show students */
 static void cmd_show(void)
 {
-    int show[MAX_RECORDS], i;
     if (ntok != 2) { printf("Usage: show <table>\n"); return; }
     if (!open_table(tok[1])) return;
-    for (i = 0; i < table.num_records; i++) show[i] = 1;
-    print_records(show);
+    select_all();
+    print_records();
 }
 
+/* find students marks > 80 */
 static void cmd_find(void)
 {
-    int show[MAX_RECORDS], i;
-    Condition cond;
-
     if (ntok != 5) { printf("Usage: find <table> <col> <op> <value>\n"); return; }
-    if (!open_table(tok[1]) || !parse_condition(2, &cond)) return;
-
-    /* Linear search: check every record one by one. */
-    for (i = 0; i < table.num_records; i++)
-        show[i] = matches(table.records[i].values[cond.col], &cond);
-    print_records(show);
+    if (!open_table(tok[1])) return;
+    if (select_where(2) < 0) return;
+    print_records();
 }
 
+/* sort students marks desc   (sorts the copy in memory, the file is not changed) */
 static void cmd_sort(void)
 {
-    int show[MAX_RECORDS], col, desc = 0, i, j;
+    int col, desc, i, j;
     Record temp;
 
-    if (ntok < 3 || ntok > 4) { printf("Usage: sort <table> <col> [asc|desc]\n"); return; }
+    if (ntok != 3 && ntok != 4) { printf("Usage: sort <table> <col> [asc|desc]\n"); return; }
     if (!open_table(tok[1])) return;
-    col = column_index(&table, tok[2]);
+    col = column_index(tok[2]);
     if (col < 0) { printf("Error: no column named '%s'.\n", tok[2]); return; }
-    if (ntok == 4) desc = (strcmp(tok[3], "desc") == 0);
+    desc = (ntok == 4 && strcmp(tok[3], "desc") == 0);
 
-    /* Bubble sort: keep swapping neighbours that are in the wrong order.
-     * Only the copy in memory is sorted - the file is not changed.     */
+    /* Bubble sort: swap neighbours that are in the wrong order. */
     for (i = 0; i < table.num_records - 1; i++) {
         for (j = 0; j < table.num_records - 1 - i; j++) {
             int r = compare_values(table.records[j].values[col], table.records[j + 1].values[col]);
-            if ((!desc && r > 0) || (desc && r < 0)) {
+            if (desc) r = -r;
+            if (r > 0) {
                 temp = table.records[j];
                 table.records[j] = table.records[j + 1];
                 table.records[j + 1] = temp;
             }
         }
     }
-    for (i = 0; i < table.num_records; i++) show[i] = 1;
-    print_records(show);
+    select_all();
+    print_records();
 }
 
+/* count students   or   count students dept = CSE */
 static void cmd_count(void)
 {
-    Condition cond;
-    int i, n = 0;
+    int n;
 
     if (ntok != 2 && ntok != 5) { printf("Usage: count <table> [<col> <op> <value>]\n"); return; }
     if (!open_table(tok[1])) return;
 
-    if (ntok == 2) {
-        n = table.num_records;
-    } else {
-        if (!parse_condition(2, &cond)) return;
-        for (i = 0; i < table.num_records; i++)
-            if (matches(table.records[i].values[cond.col], &cond)) n++;
-    }
-    printf("Count: %d\n", n);
+    n = (ntok == 2) ? table.num_records : select_where(2);
+    if (n >= 0) printf("Count: %d\n", n);
 }
 
+/* update students set marks 95 where id = 3 */
 static void cmd_update(void)
 {
-    Condition cond;
-    int set_col, i, changed = 0;
+    int col, i, n;
 
     if (ntok != 9 || strcmp(tok[2], "set") != 0 || strcmp(tok[5], "where") != 0) {
         printf("Usage: update <table> set <col> <value> where <col> <op> <value>\n");
         return;
     }
     if (!open_table(tok[1])) return;
-    set_col = column_index(&table, tok[3]);
-    if (set_col < 0) { printf("Error: no column named '%s'.\n", tok[3]); return; }
-    if (!valid_value(tok[4]) || !parse_condition(6, &cond)) return;
+    col = column_index(tok[3]);
+    if (col < 0) { printf("Error: no column named '%s'.\n", tok[3]); return; }
+    if (!valid_value(tok[4])) return;
+    n = select_where(6);
+    if (n < 0) return;
 
     for (i = 0; i < table.num_records; i++) {
-        if (matches(table.records[i].values[cond.col], &cond)) {
-            memset(table.records[i].values[set_col], 0, MAX_LEN);  /* clear old bytes */
-            strcpy(table.records[i].values[set_col], tok[4]);
-            changed++;
-            /* Binary: fix just this record inside the file (fseek). */
-            if (table.format == FORMAT_BINARY) overwrite_record(&table, i);
-        }
+        if (!selected[i]) continue;
+        memset(table.records[i].values[col], 0, MAX_LEN);       /* clear the old value */
+        strcpy(table.records[i].values[col], tok[4]);
+        if (table.format == FORMAT_BINARY) overwrite_record(&table, i);   /* in place */
     }
+    if (table.format == FORMAT_TEXT && n > 0) save_table(&table);         /* rewrite all */
 
-    /* Text: lines have different lengths, so we rewrite the whole file. */
-    if (table.format == FORMAT_TEXT && changed > 0) save_table(&table);
-
-    printf("OK: %d record(s) updated", changed);
-    if (changed > 0)
-        printf(table.format == FORMAT_BINARY ? " in place using fseek().\n"
-                                             : " (whole text file rewritten).\n");
-    else
-        printf(".\n");
+    if (n == 0)                             printf("OK: 0 record(s) updated.\n");
+    else if (table.format == FORMAT_BINARY) printf("OK: %d record(s) updated in place using fseek().\n", n);
+    else                                    printf("OK: %d record(s) updated (whole text file rewritten).\n", n);
 }
 
+/* delete students where dept = MECH */
 static void cmd_delete(void)
 {
-    Condition cond;
-    int i, kept = 0, removed;
+    int i, kept = 0, n;
 
     if (ntok != 6 || strcmp(tok[2], "where") != 0) {
         printf("Usage: delete <table> where <col> <op> <value>\n");
         return;
     }
-    if (!open_table(tok[1]) || !parse_condition(3, &cond)) return;
+    if (!open_table(tok[1])) return;
+    n = select_where(3);
+    if (n < 0) return;
 
-    /* Keep only the records that do NOT match, sliding them forward. */
+    /* keep the records that did NOT match, moving them forward to close the gaps */
     for (i = 0; i < table.num_records; i++)
-        if (!matches(table.records[i].values[cond.col], &cond))
-            table.records[kept++] = table.records[i];
-
-    removed = table.num_records - kept;
+        if (!selected[i]) table.records[kept++] = table.records[i];
     table.num_records = kept;
-    if (removed > 0) save_table(&table);
-    printf("OK: %d record(s) deleted.\n", removed);
+
+    if (n > 0) save_table(&table);
+    printf("OK: %d record(s) deleted.\n", n);
 }
 
+/* tables   (lists every .txt and .bin file in data/) */
 static void cmd_tables(void)
 {
     DIR *dir = opendir(DATA_DIR);
@@ -431,14 +430,13 @@ static void cmd_tables(void)
 
     while ((entry = readdir(dir)) != NULL) {
         char name[MAX_LEN], path[128];
-        char *dot = strrchr(entry->d_name, '.');
+        char *dot = strrchr(entry->d_name, '.');      /* the extension */
         int len;
 
         if (dot == NULL || (strcmp(dot, ".txt") != 0 && strcmp(dot, ".bin") != 0)) continue;
         len = (int)(dot - entry->d_name);
         if (len <= 0 || len >= MAX_LEN) continue;
-        strncpy(name, entry->d_name, len);
-        name[len] = '\0';
+        snprintf(name, sizeof name, "%.*s", len, entry->d_name);   /* name without extension */
         if (!load_table(name, &table)) continue;
 
         make_path(path, name, table.format);
@@ -450,6 +448,7 @@ static void cmd_tables(void)
     if (found == 0) printf("No tables yet. Try: create students text id name marks\n");
 }
 
+/* describe books */
 static void cmd_describe(void)
 {
     char path[128];
@@ -472,6 +471,7 @@ static void cmd_describe(void)
                binary_header_size(table.num_cols), binary_record_size(table.num_cols));
 }
 
+/* compare students   (saves the same data both ways and measures both files) */
 static void cmd_compare(void)
 {
     char text_path[128], bin_path[128];
@@ -480,7 +480,6 @@ static void cmd_compare(void)
     if (ntok != 2) { printf("Usage: compare <table>\n"); return; }
     if (!open_table(tok[1])) return;
 
-    /* Save the same data in BOTH formats to temporary files and measure them. */
     sprintf(text_path, "%s/_compare.txt", DATA_DIR);
     sprintf(bin_path,  "%s/_compare.bin", DATA_DIR);
     save_table_as(&table, text_path, FORMAT_TEXT);
@@ -496,27 +495,26 @@ static void cmd_compare(void)
            bin_size, binary_record_size(table.num_cols));
 }
 
+/* convert students binary   (write the new file, then delete the old one) */
 static void cmd_convert(void)
 {
     char old_path[128];
-    int new_format;
+    int format;
 
     if (ntok != 3) { printf("Usage: convert <table> <text|binary>\n"); return; }
     if (!open_table(tok[1])) return;
-
-    if      (strcmp(tok[2], "text")   == 0) new_format = FORMAT_TEXT;
-    else if (strcmp(tok[2], "binary") == 0) new_format = FORMAT_BINARY;
-    else { printf("Error: format must be 'text' or 'binary'.\n"); return; }
-
-    if (new_format == table.format) { printf("Table is already %s.\n", tok[2]); return; }
+    format = parse_format(tok[2]);
+    if (format < 0) return;
+    if (format == table.format) { printf("Table is already %s.\n", tok[2]); return; }
 
     make_path(old_path, table.name, table.format);
-    table.format = new_format;
+    table.format = format;
     if (!save_table(&table)) { printf("Error: could not write the new file.\n"); return; }
     remove(old_path);
     printf("OK: '%s' is now stored as %s.\n", table.name, tok[2]);
 }
 
+/* drop students   (deletes the table's file) */
 static void cmd_drop(void)
 {
     char path[128];
@@ -533,30 +531,33 @@ static void cmd_drop(void)
 }
 
 /* =====================================================================
- *  execute() - the single entry point. main.c (terminal) and the
- *  website both send every line the user types here.
+ *  execute(): runs one line. Used by main.c and by the website.
+ *  Returns 1 when the user typed "exit".
  * ===================================================================== */
 int execute(const char *line)
 {
+    char *cmd;
+
     tokenize(line);
     if (ntok == 0) return 0;
+    cmd = tok[0];
 
-    if      (strcmp(tok[0], "exit")     == 0) return 1;
-    else if (strcmp(tok[0], "help")     == 0) cmd_help();
-    else if (strcmp(tok[0], "create")   == 0) cmd_create();
-    else if (strcmp(tok[0], "insert")   == 0) cmd_insert();
-    else if (strcmp(tok[0], "show")     == 0) cmd_show();
-    else if (strcmp(tok[0], "find")     == 0) cmd_find();
-    else if (strcmp(tok[0], "sort")     == 0) cmd_sort();
-    else if (strcmp(tok[0], "count")    == 0) cmd_count();
-    else if (strcmp(tok[0], "update")   == 0) cmd_update();
-    else if (strcmp(tok[0], "delete")   == 0) cmd_delete();
-    else if (strcmp(tok[0], "tables")   == 0) cmd_tables();
-    else if (strcmp(tok[0], "describe") == 0) cmd_describe();
-    else if (strcmp(tok[0], "compare")  == 0) cmd_compare();
-    else if (strcmp(tok[0], "convert")  == 0) cmd_convert();
-    else if (strcmp(tok[0], "drop")     == 0) cmd_drop();
-    else printf("Error: unknown command '%s'. Type 'help' to see all commands.\n", tok[0]);
+    if      (strcmp(cmd, "exit")     == 0) return 1;
+    else if (strcmp(cmd, "help")     == 0) cmd_help();
+    else if (strcmp(cmd, "create")   == 0) cmd_create();
+    else if (strcmp(cmd, "insert")   == 0) cmd_insert();
+    else if (strcmp(cmd, "show")     == 0) cmd_show();
+    else if (strcmp(cmd, "find")     == 0) cmd_find();
+    else if (strcmp(cmd, "sort")     == 0) cmd_sort();
+    else if (strcmp(cmd, "count")    == 0) cmd_count();
+    else if (strcmp(cmd, "update")   == 0) cmd_update();
+    else if (strcmp(cmd, "delete")   == 0) cmd_delete();
+    else if (strcmp(cmd, "tables")   == 0) cmd_tables();
+    else if (strcmp(cmd, "describe") == 0) cmd_describe();
+    else if (strcmp(cmd, "compare")  == 0) cmd_compare();
+    else if (strcmp(cmd, "convert")  == 0) cmd_convert();
+    else if (strcmp(cmd, "drop")     == 0) cmd_drop();
+    else printf("Error: unknown command '%s'. Type 'help' to see all commands.\n", cmd);
 
     fflush(stdout);
     return 0;

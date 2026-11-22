@@ -105,12 +105,12 @@ Each record in the binary file is `num_cols × 32` bytes.
 | Function | What it does |
 |---|---|
 | `make_path()` | Builds the file name, e.g. `"data/students.txt"`, using `sprintf`. |
-| `file_exists()` | Tries to open a file. If it opens, the file exists. |
-| `find_table()` | Looks for `name.txt`, then `name.bin`. Tells you which format the table uses. |
+| `find_table()` | Looks for `name.txt`, then `name.bin` (a file exists if `file_size()` is not -1). Tells you which format the table uses. |
 | `file_size()` | `fseek()` to the end of the file, then `ftell()` gives the size in bytes. |
 | `binary_header_size()` | `4 + sizeof(int) + num_cols × 32` |
 | `binary_record_size()` | `num_cols × 32` |
-| `split_line()` | Splits `"1,Ravi,CSE,85"` at the commas into separate values. |
+| `split_line()` | Splits `"1,Ravi,CSE,85"` at the commas into separate values, using `strtok()`. |
+| `write_line()` | Writes values as one comma-separated line. Used for the header line and for every record. |
 | `load_text()` | Reads line 1 as column names, then one record per line with `fgets()`. |
 | `load_binary()` | Checks the magic bytes `FDB1`, reads the column count and names, then reads fixed-size records with `fread()` until the file ends. |
 | `load_table()` | Finds the table's file and calls `load_text()` or `load_binary()`. |
@@ -158,6 +158,7 @@ Every command follows the same three steps:
 static Table table;               /* the table we are working on (~320 KB) */
 static char  tok[MAX_TOKENS][64]; /* the words of the current command      */
 static int   ntok;                /* how many words                        */
+static int   selected[MAX_RECORDS]; /* selected[i] = 1 if record i matches */
 ```
 
 **Why is `table` global instead of a local variable?** Local variables live on the *stack*, which is small: in WebAssembly it is only 64 KB by default, and our table is 320 KB. Global variables live in a separate memory area that exists for the whole program. `static` here means "only visible inside this file".
@@ -168,13 +169,14 @@ static int   ntok;                /* how many words                        */
 |---|---|
 | `tokenize()` | Walks through the line character by character. Spaces end a word. A `"` starts a quoted word that can contain spaces. |
 | `valid_name()` | Names must start with a letter and use only letters, digits and `_`. This also blocks tricks like `drop ../secret`. |
-| `valid_value()` | A value must be shorter than 32 characters and must not contain a comma. |
+| `valid_value()` | A value must be 1 to 31 characters and must not contain a comma. (Empty values are not allowed, because `strtok` would skip them when reading the file back.) |
 | `column_index()` | Finds a column's position by its name, or returns -1. |
 | `is_number()` | Uses `strtod()`. If the whole string was used up, it is a number. |
 | `compare_values()` | Compares as numbers if both are numbers (so 9 < 78), otherwise alphabetically with `strcmp()`. |
-| `parse_condition()` | Reads `<column> <operator> <value>` into a `Condition` struct and checks it. |
-| `matches()` | Returns 1 if a value satisfies the condition (`=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`). |
-| `print_records()` | Works out how wide each column must be, then prints the box table. |
+| `parse_format()` | Turns `"text"` / `"binary"` into `FORMAT_TEXT` / `FORMAT_BINARY`. Used by `create` and `convert`. |
+| `matches()` | `matches("85", ">", "80")` returns 1. Handles `=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`. |
+| `select_where()` | Checks the column and operator, then marks every matching record in `selected[]` (linear search). Returns how many matched. |
+| `print_records()` | Works out how wide each column must be, then prints the selected records as a box table. |
 
 ### The commands
 
@@ -183,7 +185,7 @@ static int   ntok;                /* how many words                        */
 | `cmd_create()` | Checks the name, format and columns, fills an empty `Table`, and saves it (this creates the file). |
 | `cmd_insert()` | Loads the table, checks the number of values, zero-fills a `Record` with `memset`, copies the values, and calls `append_record()`. |
 | `cmd_show()` | Marks every record to be shown and prints them. |
-| `cmd_find()` | Linear search: checks every record with `matches()`. |
+| `cmd_find()` | Calls `select_where()`, then prints the matching records. |
 | `cmd_sort()` | Bubble sort on the copy in memory, then prints. **The file is not changed.** |
 | `cmd_count()` | Counts all records, or only the matching ones. |
 | `cmd_update()` | Changes the value in every matching record. Binary: `overwrite_record()` for each one. Text: `save_table()` once at the end. |
@@ -337,7 +339,7 @@ The function can only be used inside that `.c` file. It's private.
 To fill the record with zeros, so no leftover "garbage" bytes from memory get written into the binary file.
 
 **How do you prevent buffer overflows?**
-We check lengths before copying: values must be under 32 characters (`valid_value`), tokens are cut at 63 characters, and condition values are copied with `snprintf`, which never writes past the buffer.
+We check lengths before copying: values must be under 32 characters (`valid_value`), tokens are cut at 63 characters, and values read back from a file are copied with `snprintf`, which never writes past the buffer.
 
 **What stops a user from deleting other files, like `drop ../important`?**
 `valid_name()` allows only letters, digits and `_`, starting with a letter. So a name can never contain `/` or `..`.
@@ -352,7 +354,7 @@ We compile the same C files to WebAssembly with Emscripten. JavaScript calls our
 `"w"` erases the file before writing, so a crash could leave it half-written. To fix this, write to a temporary file first and then `rename()` it. We listed this as a future improvement.
 
 **How did you test the project?**
-`tests/run_tests.sh` runs 34 automatic tests: every command, both formats, data surviving a restart, the file layout, and every error message. We also checked that one test really fails when its bug is put back.
+`tests/run_tests.sh` runs 35 automatic tests: every command, both formats, data surviving a restart, the file layout, and every error message. We also checked that one test really fails when its bug is put back.
 
 **What would you add next?**
 `and`/`or` conditions, real number types, an index for faster search, `malloc` for bigger tables, and safe saving with `rename()`.
@@ -368,4 +370,4 @@ We compile the same C files to WebAssembly with Emscripten. JavaScript calls our
 5. Click **books** and switch to the binary file: *"Header with FDB1, then fixed 32-byte slots."* Point at a byte to show its explanation.
 6. Type `update books set price 350 where id = 2`: *"Only one byte changed. `fseek()` jumped straight to that record."*
 7. Type `compare students`: *"Text is smaller; binary gives fixed-size records and in-place updates."*
-8. Finish in the terminal: `make test` → *"34 automatic tests pass."*
+8. Finish in the terminal: `make test` → *"35 automatic tests pass."*

@@ -1,147 +1,128 @@
 /*
- * storage.c  -  Everything that reads or writes table files.
+ * storage.c  -  Reading and writing table files.
  *
- * A table lives in ONE file inside the data/ folder:
+ * Each table is one file in the data/ folder, in one of two formats:
  *
- *   TEXT format   (data/<name>.txt)  - human readable, like a CSV file
- *       line 1      : column names      id,name,marks
- *       other lines : one record each   1,Ravi,85
+ *   TEXT   data/<name>.txt     first line = column names, then one line per record
+ *          id,name,marks
+ *          1,Ravi,85
  *
- *   BINARY format (data/<name>.bin)  - raw bytes, fixed-size records
- *       [ "FDB1" | num_cols | column names ] [ record ] [ record ] ...
- *       Every record has the SAME size, so record number i starts at
- *       header_size + i * record_size. We can jump straight to it with fseek().
+ *   BINARY data/<name>.bin     "FDB1" | number of columns | column names | records...
+ *          Every value takes exactly MAX_LEN (32) bytes, so every record has the
+ *          same size. That lets us jump straight to record N with fseek().
  */
 #include <stdio.h>
 #include <string.h>
 #include "filedb.h"
 
-static const char MAGIC[4] = { 'F', 'D', 'B', '1' };  /* marks a FileDB binary file */
+static const char MAGIC[4] = { 'F', 'D', 'B', '1' };   /* first 4 bytes of every binary file */
 
-/* Builds the file path for a table, e.g. "data/students.txt". */
+/* "students" + FORMAT_TEXT  ->  "data/students.txt" */
 void make_path(char *path, const char *name, int format)
 {
     sprintf(path, "%s/%s.%s", DATA_DIR, name, format == FORMAT_TEXT ? "txt" : "bin");
 }
 
-/* Returns 1 if the file can be opened for reading, else 0. */
-static int file_exists(const char *path)
-{
-    FILE *f = fopen(path, "r");
-    if (f == NULL) return 0;
-    fclose(f);
-    return 1;
-}
-
-/* Looks for a table's file. Returns 1 and sets *format if found, else 0. */
-int find_table(const char *name, int *format)
-{
-    char path[128];
-
-    make_path(path, name, FORMAT_TEXT);
-    if (file_exists(path)) { *format = FORMAT_TEXT; return 1; }
-
-    make_path(path, name, FORMAT_BINARY);
-    if (file_exists(path)) { *format = FORMAT_BINARY; return 1; }
-
-    return 0;
-}
-
-/* Returns the size of a file in bytes, or -1 if it cannot be opened. */
+/* Size of a file in bytes, or -1 if the file does not exist. */
 long file_size(const char *path)
 {
     long size;
     FILE *f = fopen(path, "rb");
     if (f == NULL) return -1;
-    fseek(f, 0, SEEK_END);   /* jump to the end ...           */
-    size = ftell(f);         /* ... and ask where we are      */
+    fseek(f, 0, SEEK_END);      /* go to the end of the file */
+    size = ftell(f);            /* our position = the size   */
     fclose(f);
     return size;
 }
 
-/* Binary layout sizes (in bytes). */
+/* Does the table exist? If yes, return 1 and tell which format it uses. */
+int find_table(const char *name, int *format)
+{
+    char path[128];
+
+    make_path(path, name, FORMAT_TEXT);
+    if (file_size(path) >= 0) { *format = FORMAT_TEXT; return 1; }
+
+    make_path(path, name, FORMAT_BINARY);
+    if (file_size(path) >= 0) { *format = FORMAT_BINARY; return 1; }
+
+    return 0;
+}
+
+/* Binary layout: header = "FDB1" (4) + column count (4) + one 32-byte name per column. */
 long binary_header_size(int num_cols) { return 4 + sizeof(int) + (long)num_cols * MAX_LEN; }
 long binary_record_size(int num_cols) { return (long)num_cols * MAX_LEN; }
 
-/*
- * Splits "a,b,c" into separate values. Unlike strtok(), it keeps empty
- * values ("a,,c" gives 3 values). Returns how many values were found.
- */
-static int split_line(char *line, char out[][MAX_LEN], int max)
-{
-    int count = 0, len = 0;
-    char *p;
+/* ===================== TEXT format ===================== */
 
-    for (p = line; ; p++) {
-        if (*p == ',' || *p == '\0') {
-            if (count < max) out[count][len] = '\0';
-            count++;
-            len = 0;
-            if (*p == '\0') break;
-        } else if (count < max && len < MAX_LEN - 1) {
-            out[count][len++] = *p;
-        }
+/* Split "1,Ravi,85\n" into values. Returns how many values were found. */
+static int split_line(char *line, char out[][MAX_LEN])
+{
+    int count = 0;
+    char *part = strtok(line, ",\r\n");          /* cut at commas and the newline */
+    while (part != NULL && count < MAX_COLS) {
+        snprintf(out[count], MAX_LEN, "%s", part);   /* copy safely, at most 31 chars */
+        count++;
+        part = strtok(NULL, ",\r\n");
     }
     return count;
 }
 
-/* Removes the newline that fgets() keeps at the end of a line. */
-static void strip_newline(char *s)
+/* Write values as one line: "1,Ravi,85\n". Used for the header and for records. */
+static void write_line(FILE *f, char values[][MAX_LEN], int count)
 {
-    s[strcspn(s, "\r\n")] = '\0';
+    int i;
+    for (i = 0; i < count; i++)
+        fprintf(f, "%s%s", values[i], i < count - 1 ? "," : "\n");
 }
-
-/* ---------- Loading ---------- */
 
 static int load_text(FILE *f, Table *t)
 {
     char line[MAX_COLS * MAX_LEN + 16];
 
-    if (fgets(line, sizeof line, f) == NULL) return 0;   /* empty file */
-    strip_newline(line);
-    t->num_cols = split_line(line, t->cols, MAX_COLS);
+    if (fgets(line, sizeof line, f) == NULL) return 0;        /* empty file */
+    t->num_cols = split_line(line, t->cols);                   /* line 1 = column names */
 
     while (t->num_records < MAX_RECORDS && fgets(line, sizeof line, f) != NULL) {
-        Record *r = &t->records[t->num_records];
-        strip_newline(line);
-        if (line[0] == '\0') continue;                   /* skip blank lines */
-        memset(r, 0, sizeof(Record));
-        split_line(line, r->values, t->num_cols);
-        t->num_records++;
+        if (split_line(line, t->records[t->num_records].values) > 0)   /* skip blank lines */
+            t->num_records++;
     }
     return 1;
 }
+
+/* ===================== BINARY format ===================== */
 
 static int load_binary(FILE *f, Table *t)
 {
     char magic[4];
+    size_t n;
 
-    /* 1. Header: check the magic bytes, then read the column info. */
+    /* Header: check it is our file, then read the column count and names. */
     if (fread(magic, 1, 4, f) != 4 || memcmp(magic, MAGIC, 4) != 0) return 0;
     if (fread(&t->num_cols, sizeof(int), 1, f) != 1) return 0;
     if (t->num_cols < 1 || t->num_cols > MAX_COLS) return 0;
-    if (fread(t->cols, MAX_LEN, t->num_cols, f) != (size_t)t->num_cols) return 0;
+    n = (size_t)t->num_cols;
+    if (fread(t->cols, MAX_LEN, n, f) != n) return 0;
 
-    /* 2. Records: read fixed-size blocks until the end of the file. */
-    while (t->num_records < MAX_RECORDS) {
-        Record *r = &t->records[t->num_records];
-        memset(r, 0, sizeof(Record));
-        if (fread(r->values, MAX_LEN, t->num_cols, f) != (size_t)t->num_cols) break;
+    /* Records: keep reading fixed-size blocks until the file ends. */
+    while (t->num_records < MAX_RECORDS &&
+           fread(t->records[t->num_records].values, MAX_LEN, n, f) == n)
         t->num_records++;
-    }
     return 1;
 }
 
-/* Loads a whole table from its file into memory. Returns 1 on success. */
+/* ===================== Used by the commands ===================== */
+
+/* Read a whole table from its file into memory. Returns 1 on success. */
 int load_table(const char *name, Table *t)
 {
     char path[128];
     FILE *f;
     int ok;
 
-    memset(t, 0, sizeof(Table));
+    memset(t, 0, sizeof(Table));            /* start from an all-zero table */
     if (!find_table(name, &t->format)) return 0;
-    strcpy(t->name, name);
+    snprintf(t->name, MAX_LEN, "%s", name);
 
     make_path(path, name, t->format);
     f = fopen(path, t->format == FORMAT_TEXT ? "r" : "rb");
@@ -152,16 +133,7 @@ int load_table(const char *name, Table *t)
     return ok;
 }
 
-/* ---------- Saving ---------- */
-
-static void write_text_record(FILE *f, Table *t, Record *r)
-{
-    int c;
-    for (c = 0; c < t->num_cols; c++)
-        fprintf(f, "%s%s", r->values[c], c < t->num_cols - 1 ? "," : "\n");
-}
-
-/* Writes the WHOLE table to 'path' in the given format. Returns 1 on success. */
+/* Write the WHOLE table to a file ("w" erases the file first). */
 int save_table_as(Table *t, const char *path, int format)
 {
     int i;
@@ -169,10 +141,9 @@ int save_table_as(Table *t, const char *path, int format)
     if (f == NULL) return 0;
 
     if (format == FORMAT_TEXT) {
-        for (i = 0; i < t->num_cols; i++)
-            fprintf(f, "%s%s", t->cols[i], i < t->num_cols - 1 ? "," : "\n");
+        write_line(f, t->cols, t->num_cols);
         for (i = 0; i < t->num_records; i++)
-            write_text_record(f, t, &t->records[i]);
+            write_line(f, t->records[i].values, t->num_cols);
     } else {
         fwrite(MAGIC, 1, 4, f);
         fwrite(&t->num_cols, sizeof(int), 1, f);
@@ -184,7 +155,7 @@ int save_table_as(Table *t, const char *path, int format)
     return 1;
 }
 
-/* Saves the table to its own file, in its own format. */
+/* Write the table to its own file, in its own format. */
 int save_table(Table *t)
 {
     char path[128];
@@ -192,10 +163,7 @@ int save_table(Table *t)
     return save_table_as(t, path, t->format);
 }
 
-/*
- * Adds ONE record to the end of the file, without rewriting the rest.
- * Opening with "a" (append) puts the write position at the end.
- */
+/* Add ONE record at the end of the file. Append mode never touches old data. */
 int append_record(Table *t, Record *r)
 {
     char path[128];
@@ -205,18 +173,17 @@ int append_record(Table *t, Record *r)
     f = fopen(path, t->format == FORMAT_TEXT ? "a" : "ab");
     if (f == NULL) return 0;
 
-    if (t->format == FORMAT_TEXT) write_text_record(f, t, r);
+    if (t->format == FORMAT_TEXT) write_line(f, r->values, t->num_cols);
     else                          fwrite(r->values, MAX_LEN, t->num_cols, f);
-
     fclose(f);
     return 1;
 }
 
 /*
- * BINARY ONLY: overwrites record number 'index' directly inside the file.
- * Because all records have the same size, we can calculate exactly where
- * it starts and jump there with fseek(). No other bytes are touched.
- * (A text file cannot do this: lines have different lengths.)
+ * BINARY only: replace record number `index` inside the file.
+ * All records are the same size, so we can work out where it starts:
+ *     position = header size + index * record size
+ * then jump there with fseek() and overwrite just that record.
  */
 int overwrite_record(Table *t, int index)
 {
@@ -225,13 +192,12 @@ int overwrite_record(Table *t, int index)
     FILE *f;
 
     make_path(path, t->name, FORMAT_BINARY);
-    f = fopen(path, "r+b");                     /* read + write, no truncation */
+    f = fopen(path, "r+b");                 /* read + write, does NOT erase the file */
     if (f == NULL) return 0;
 
     position = binary_header_size(t->num_cols) + index * binary_record_size(t->num_cols);
     fseek(f, position, SEEK_SET);
     fwrite(t->records[index].values, MAX_LEN, t->num_cols, f);
-
     fclose(f);
     return 1;
 }

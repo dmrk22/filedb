@@ -86,6 +86,7 @@ check "missing table"           "show nothing"                     "does not exi
 check "unknown column"          "find students age > 3"            "no column named 'age'"
 check "unknown operator"        "find students marks => 3"         "unknown operator"
 check "comma not allowed"       "insert students 5 a,b CSE 1"      "cannot contain a comma"
+check "empty value not allowed" 'insert students 5 "" CSE 1'       "cannot be empty"
 check "duplicate table"         "create students text a"           "already exists"
 check "value too long"          "insert students 5 abcdefghijklmnopqrstuvwxyz0123456789 CSE 1" "too long"
 check "no ../ path tricks"      "drop ../secret"                   "does not exist"

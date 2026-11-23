@@ -279,5 +279,6 @@ These limits keep the code simple. They are set in `src/filedb.h` and can be cha
 
 ## More documentation
 
+- **[docs/FileDB_Documentation.pdf](docs/FileDB_Documentation.pdf)**: full technical documentation (setup, commands, file formats, architecture, error messages, testing).
+- **[docs/FileDB_Project_Report.pdf](docs/FileDB_Project_Report.pdf)**: the project report in the college template ([editable .docx](docs/FileDB_Project_Report.docx)).
 - **[docs/VIVA_GUIDE.md](docs/VIVA_GUIDE.md)**: explains every file and function in simple words, with answers to likely questions.
-- **docs/FileDB_Project_Report.docx**: the project report in the college template.

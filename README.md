@@ -36,7 +36,7 @@ Live website: **https://filedb-kappa.vercel.app**  (demo: [binary file](https://
 You need a C compiler (`gcc` or `clang`) and `make`.
 
 ```bash
-make            # build the program
+make            # build the program (also creates the data/ folder)
 ./filedb        # start it
 ```
 
@@ -49,10 +49,11 @@ filedb> show students
 filedb> exit
 ```
 
-Without `make`, you can compile directly:
+Without `make`, you can compile directly (tables are kept in a `data/` folder, so create it once):
 
 ```bash
 gcc -Wall -std=c99 -o filedb src/main.c src/storage.c src/commands.c
+mkdir data
 ```
 
 ---
@@ -131,7 +132,7 @@ Same 3 record(s) stored two ways:
 
 ## How tables are stored
 
-Tables are saved in the `data/` folder, one file per table.
+Tables are saved in the `data/` folder, one file per table. `data/tables.lst` keeps the name of every table, one per line (`create` adds a name, `drop` removes it).
 
 ### Text format: `data/<table>.txt`
 
@@ -279,6 +280,5 @@ These limits keep the code simple. They are set in `src/filedb.h` and can be cha
 
 ## More documentation
 
-- **[docs/FileDB_Documentation.pdf](docs/FileDB_Documentation.pdf)**: full technical documentation (setup, commands, file formats, architecture, error messages, testing).
-- **[docs/FileDB_Project_Report.pdf](docs/FileDB_Project_Report.pdf)**: the project report in the college template ([editable .docx](docs/FileDB_Project_Report.docx)).
+- **[docs/FileDB_Project_Report.pdf](docs/FileDB_Project_Report.pdf)**: the project report (college template), followed by the full technical documentation.
 - **[docs/VIVA_GUIDE.md](docs/VIVA_GUIDE.md)**: explains every file and function in simple words, with answers to likely questions.

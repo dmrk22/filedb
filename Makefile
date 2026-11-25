@@ -10,6 +10,7 @@ SRC    = src/storage.c src/commands.c
 
 filedb: $(SRC) src/main.c src/filedb.h
 	$(CC) $(CFLAGS) -o filedb $(SRC) src/main.c
+	mkdir -p data
 
 # main.c is left out: the web page calls execute() directly.
 # IDBFS = the browser's storage, so tables survive a page refresh.

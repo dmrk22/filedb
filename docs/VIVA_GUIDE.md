@@ -109,7 +109,9 @@ Each record in the binary file is `num_cols × 32` bytes.
 | `file_size()` | `fseek()` to the end of the file, then `ftell()` gives the size in bytes. |
 | `binary_header_size()` | `4 + sizeof(int) + num_cols × 32` |
 | `binary_record_size()` | `num_cols × 32` |
-| `split_line()` | Splits `"1,Ravi,CSE,85"` at the commas into separate values, using `strtok()`. |
+| `copy_value()` | Clears all 32 bytes of a slot, then copies the value in. Used everywhere a value is stored. |
+| `remove_newline()` | Cuts off the `\n` that `fgets()` keeps at the end of a line. |
+| `split_line()` | Walks through `"1,Ravi,CSE,85"` character by character; every comma ends one value. |
 | `write_line()` | Writes values as one comma-separated line. Used for the header line and for every record. |
 | `load_text()` | Reads line 1 as column names, then one record per line with `fgets()`. |
 | `load_binary()` | Checks the magic bytes `FDB1`, reads the column count and names, then reads fixed-size records with `fread()` until the file ends. |
@@ -118,6 +120,8 @@ Each record in the binary file is `num_cols × 32` bytes.
 | `save_table()` | Calls `save_table_as()` with the table's own file and format. |
 | `append_record()` | Opens the file in append mode (`"a"` / `"ab"`) and writes one record at the end. |
 | `overwrite_record()` | **Binary only.** Opens with `"r+b"`, jumps to the record with `fseek()`, overwrites just that record. |
+| `add_to_list()` | Appends a new table's name to `data/tables.lst` (append mode `"a"`). |
+| `remove_from_list()` | Reads every name from `data/tables.lst` into an array, then writes them back without the dropped one. |
 
 ### The most important idea: `overwrite_record()`
 
@@ -137,7 +141,8 @@ Record 2 starts at 136 + 2 × 128 = **392**. We jump there and write 128 bytes. 
 `fread()` returns how many items it actually read. When it returns fewer than we asked for, we have reached the end of the file:
 
 ```c
-if (fread(r->values, MAX_LEN, t->num_cols, f) != (size_t)t->num_cols) break;
+n = fread(t->records[t->num_records].values, MAX_LEN, t->num_cols, f);
+if (n != t->num_cols) break;
 ```
 
 So we never store the record count in the file. The file size tells us.
@@ -155,23 +160,24 @@ Every command follows the same three steps:
 ### Global variables
 
 ```c
-static Table table;               /* the table we are working on (~320 KB) */
-static char  tok[MAX_TOKENS][64]; /* the words of the current command      */
-static int   ntok;                /* how many words                        */
-static int   selected[MAX_RECORDS]; /* selected[i] = 1 if record i matches */
+Table table;                       /* the table we are working on (~320 KB) */
+char  tok[MAX_TOKENS][WORD_LEN];   /* the words of the current command      */
+int   ntok;                        /* how many words                        */
+int   selected[MAX_RECORDS];       /* selected[i] = 1 if record i matches   */
 ```
 
-**Why is `table` global instead of a local variable?** Local variables live on the *stack*, which is small: in WebAssembly it is only 64 KB by default, and our table is 320 KB. Global variables live in a separate memory area that exists for the whole program. `static` here means "only visible inside this file".
+**Why is `table` global instead of a local variable?** Local variables live on the *stack*, which is small: in WebAssembly it is only 64 KB by default, and our table is 320 KB. Global variables live in a separate memory area that exists for the whole program.
 
 ### Helper functions
 
 | Function | What it does |
 |---|---|
+| `is_letter()`, `is_digit()`, `is_space()` | One-line checks on a character, e.g. `ch >= '0' && ch <= '9'`. |
 | `tokenize()` | Walks through the line character by character. Spaces end a word. A `"` starts a quoted word that can contain spaces. |
 | `valid_name()` | Names must start with a letter and use only letters, digits and `_`. This also blocks tricks like `drop ../secret`. |
-| `valid_value()` | A value must be 1 to 31 characters and must not contain a comma. (Empty values are not allowed, because `strtok` would skip them when reading the file back.) |
+| `valid_value()` | A value must be 1 to 31 characters and must not contain a comma. Empty values are not allowed either. |
 | `column_index()` | Finds a column's position by its name, or returns -1. |
-| `is_number()` | Uses `strtod()`. If the whole string was used up, it is a number. |
+| `is_number()` | Loops over the characters: only digits, at most one `.`, and an optional `-` at the start. |
 | `compare_values()` | Compares as numbers if both are numbers (so 9 < 78), otherwise alphabetically with `strcmp()`. |
 | `parse_format()` | Turns `"text"` / `"binary"` into `FORMAT_TEXT` / `FORMAT_BINARY`. Used by `create` and `convert`. |
 | `matches()` | `matches("85", ">", "80")` returns 1. Handles `=`, `!=`, `>`, `<`, `>=`, `<=`, `contains`. |
@@ -183,37 +189,40 @@ static int   selected[MAX_RECORDS]; /* selected[i] = 1 if record i matches */
 | Function | How it works |
 |---|---|
 | `cmd_create()` | Checks the name, format and columns, fills an empty `Table`, and saves it (this creates the file). |
-| `cmd_insert()` | Loads the table, checks the number of values, zero-fills a `Record` with `memset`, copies the values, and calls `append_record()`. |
+| `cmd_insert()` | Loads the table, checks the number of values, copies each value into a `Record` with `copy_value()`, and calls `append_record()`. |
 | `cmd_show()` | Marks every record to be shown and prints them. |
 | `cmd_find()` | Calls `select_where()`, then prints the matching records. |
 | `cmd_sort()` | Bubble sort on the copy in memory, then prints. **The file is not changed.** |
 | `cmd_count()` | Counts all records, or only the matching ones. |
 | `cmd_update()` | Changes the value in every matching record. Binary: `overwrite_record()` for each one. Text: `save_table()` once at the end. |
 | `cmd_delete()` | Keeps only the records that do *not* match, sliding them forward to close the gaps, then saves the whole table. |
-| `cmd_tables()` | Uses `opendir()` / `readdir()` to list the `.txt` and `.bin` files in `data/`. |
+| `cmd_tables()` | Reads the table names from `data/tables.lst` with `fgets()`, loads each table and prints its format, record count and size. |
 | `cmd_describe()` | Prints format, file, size and, for binary, the header and record sizes. |
 | `cmd_compare()` | Saves the same data to two temporary files (text and binary), measures both, then deletes them. |
 | `cmd_convert()` | Saves the table in the other format, then deletes the old file. |
-| `cmd_drop()` | Deletes the table's file with `remove()`. |
+| `cmd_drop()` | Deletes the table's file with `remove()` and takes its name out of `data/tables.lst`. |
 | `execute()` | Tokenizes the line and calls the right `cmd_` function. Returns 1 for `exit`. |
 
-### Why `memset` before writing?
+### Why clear the slot before writing? (`copy_value()`)
 
 ```c
-memset(&r, 0, sizeof r);   /* zero-fill, so no garbage bytes reach the file */
+for (i = 0; i < MAX_LEN; i++) dest[i] = '\0';                 /* clear all 32 bytes */
+for (i = 0; src[i] != '\0' && i < MAX_LEN - 1; i++) dest[i] = src[i];
 ```
 
-A new variable in C contains whatever was left in that memory before ("garbage"). In a binary file we write all 32 bytes of each slot, so without `memset` those leftover bytes would end up in the file. We also clear the slot before an update. Otherwise changing `"Let Us C"` to `"C"` would leave `"t Us C"` hidden after the new text. There is a test for exactly this.
+A new variable in C contains whatever was left in that memory before ("garbage"). In a binary file we write all 32 bytes of each slot, so without clearing them those leftover bytes would end up in the file. We also clear the slot before an update. Otherwise changing `"Let Us C"` to `"C"` would leave `"t Us C"` hidden after the new text. There is a test for exactly this.
 
 ---
 
 ## 7. `main.c`: the terminal loop
 
 ```c
-mkdir(DATA_DIR, 0755);                   /* make sure data/ exists */
+f = fopen(LIST_FILE, "a");               /* fails if there is no data/ folder */
+if (f == NULL) { printf("Error: ... mkdir data\n"); return 1; }
+fclose(f);
 while (1) {
     printf("filedb> ");
-    if (fgets(line, sizeof line, stdin) == NULL) break;   /* end of input */
+    if (fgets(line, sizeof(line), stdin) == NULL) break;  /* end of input */
     if (execute(line) == 1) break;                       /* user typed exit */
 }
 ```
@@ -315,7 +324,7 @@ We read fixed-size records until `fread()` returns fewer items than requested, w
 To keep the code simple: every value is a `char[32]`. We compare numerically when both values look like numbers.
 
 **How do you compare `9` and `78` correctly?**
-`compare_values()` uses `is_number()` (which uses `strtod`). If both are numbers, it compares them as `double`s. Otherwise it uses `strcmp()`.
+`compare_values()` uses `is_number()`, which checks that every character is a digit (one `.` and a leading `-` are allowed). If both are numbers, it compares them as `double`s. Otherwise it uses `strcmp()`.
 
 **What is tokenizing? How do you handle values with spaces?**
 Splitting the input into words. Normally a space ends a word, but if a word starts with `"`, we keep reading until the closing `"`.
@@ -330,16 +339,16 @@ Bubble sort, O(n²). It sorts only the copy in memory, so the file is not change
 We loop over the records and copy every record that does not match to the front of the array (`kept++`). Then we set the new count and rewrite the file.
 
 **Why is the `table` variable global?**
-It is about 320 KB. Local variables go on the stack, which is small (only 64 KB in WebAssembly). Global and static variables are stored in a separate area.
+It is about 320 KB. Local variables go on the stack, which is small (only 64 KB in WebAssembly). Global variables are stored in a separate area.
 
-**What does `static` mean on a function?**
-The function can only be used inside that `.c` file. It's private.
+**How does `tables` know which tables exist?**
+`create` appends the name to `data/tables.lst`, `drop` rewrites that file without it, and `tables` reads it line by line with `fgets()`.
 
-**Why do you use `memset` before writing a record?**
-To fill the record with zeros, so no leftover "garbage" bytes from memory get written into the binary file.
+**Why does `copy_value()` clear the slot before copying?**
+To fill the slot with zeros, so no leftover "garbage" bytes from memory get written into the binary file.
 
 **How do you prevent buffer overflows?**
-We check lengths before copying: values must be under 32 characters (`valid_value`), tokens are cut at 63 characters, and values read back from a file are copied with `snprintf`, which never writes past the buffer.
+We check lengths before copying: values must be under 32 characters (`valid_value`), tokens are cut at 63 characters, and every value read back from a file goes through `copy_value()`, which copies at most 31 characters.
 
 **What stops a user from deleting other files, like `drop ../important`?**
 `valid_name()` allows only letters, digits and `_`, starting with a letter. So a name can never contain `/` or `..`.

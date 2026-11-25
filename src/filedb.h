@@ -11,8 +11,9 @@
 #define MAX_COLS     10     /* max columns in one table               */
 #define MAX_RECORDS  1000   /* max records (rows) in one table        */
 #define MAX_LEN      32     /* max length of one value, incl. '\0'    */
-#define MAX_TOKENS   40     /* max words in one command               */
-#define DATA_DIR     "data" /* folder where all table files are kept  */
+#define MAX_TABLES   100    /* max tables in the list of tables       */
+#define DATA_DIR     "data"             /* folder where all table files are kept */
+#define LIST_FILE    "data/tables.lst"  /* text file with one table name per line */
 
 /* ---------- Storage formats ---------- */
 #define FORMAT_TEXT    0    /* saved as  data/<name>.txt  */
@@ -34,18 +35,22 @@ typedef struct {
 } Table;
 
 /* ---------- storage.c : everything that touches files ---------- */
-void make_path(char *path, const char *name, int format);
-int  find_table(const char *name, int *format);
-int  load_table(const char *name, Table *t);
-int  save_table(Table *t);
-int  save_table_as(Table *t, const char *path, int format);
-int  append_record(Table *t, Record *r);
-int  overwrite_record(Table *t, int index);
-long file_size(const char *path);
+void copy_value(char dest[], char src[]);
+void remove_newline(char s[]);
+void make_path(char path[], char name[], int format);
+long file_size(char path[]);
+int  find_table(char name[], int *format);
 long binary_header_size(int num_cols);
 long binary_record_size(int num_cols);
+int  load_table(char name[], Table *t);
+int  save_table_as(Table *t, char path[], int format);
+int  save_table(Table *t);
+int  append_record(Table *t, Record *r);
+int  overwrite_record(Table *t, int index);
+void add_to_list(char name[]);
+void remove_from_list(char name[]);
 
 /* ---------- commands.c : understanding and running commands ---------- */
-int  execute(const char *line);   /* returns 1 when the user typed "exit" */
+int  execute(char line[]);   /* returns 1 when the user typed "exit" */
 
 #endif

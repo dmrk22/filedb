@@ -11,6 +11,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FILEDB="$ROOT/filedb"
 WORK=$(mktemp -d)
 cd "$WORK" || exit 1
+mkdir data   # FileDB keeps its files in a data/ folder
 
 pass=0
 fail=0

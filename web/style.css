@@ -142,6 +142,27 @@ h1, h2, h3 { text-wrap: balance; }
 
 .side-title { margin: 0 0 6px; padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .table-list { list-style: none; margin: 0 0 12px; padding: 0; }
+
+/* quick start steps */
+.side-tour { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; padding-right: 8px; }
+.side-count { font: 500 11px/1 var(--mono); color: var(--muted); }
+.tour-hint { margin: 0 0 6px; padding: 0 8px; font-size: 12px; color: var(--muted); }
+.tour { list-style: none; margin: 0; padding: 0; }
+.tour-btn {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start;
+  width: 100%; padding: 6px 8px; border: 0; border-radius: var(--radius);
+  background: none; text-align: left; cursor: pointer; color: var(--ink-2);
+}
+.tour-btn:hover { background: var(--rule); color: var(--ink); }
+.tour-num {
+  width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid var(--rule-strong); background: var(--paper);
+  font: 500 11px/1 var(--mono); color: var(--muted);
+}
+.tour-btn.is-done .tour-num { background: var(--ink); border-color: var(--ink); color: #fff; }
+.tour-text { font-size: 13px; line-height: 1.35; padding-top: 1px; }
+.tour-cmd { display: block; font: 11px/1.4 var(--mono); color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table-item {
   display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px;
   width: 100%; padding: 6px 8px;

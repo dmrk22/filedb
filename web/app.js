@@ -31,7 +31,7 @@
 
   var $ = function (s) { return document.querySelector(s); };
   var el = {
-    tableList: $('#table-list'),
+    tableList: $('#table-list'), tour: $('#tour'), tourCount: $('#tour-count'),
     tableName: $('#table-name'), tableFormat: $('#table-format'), tableStats: $('#table-stats'),
     grid: $('#grid'), gridEmpty: $('#grid-empty'),
     console: $('#console'), form: $('#console-form'), input: $('#console-input'), run: $('#btn-run'),
@@ -534,6 +534,41 @@
     ['help', 'List all commands.', 'help']
   ];
 
+  /* Quick start: 12 steps; click one to run its commands. */
+  var TOUR = [
+    ['Make a text table', ['create students text id name dept marks']],
+    ['Add a record', ['insert students 1 Ravi CSE 85']],
+    ['Add four more', ['insert students 2 "Anita Sharma" ECE 92', 'insert students 3 Kiran CSE 78',
+                       'insert students 4 Meena MECH 58', 'insert students 5 Arjun EEE 100']],
+    ['Show all records', ['show students']],
+    ['Search: marks above 80', ['find students marks > 80']],
+    ['Sort by marks (as numbers)', ['sort students marks desc']],
+    ['Count CSE students', ['count students dept = CSE']],
+    ['Update a text file', ['update students set marks 95 where id = 3']],
+    ['Make a binary table', ['create books binary id title author price', 'insert books 1 "Let Us C" Kanetkar 300',
+                             'insert books 2 "Data Structures in C" Tanenbaum 520']],
+    ['Update in place with fseek', ['update books set price 350 where id = 1']],
+    ['Compare file sizes', ['compare students']],
+    ['Delete a record', ['delete students where dept = MECH']]
+  ];
+
+  function tourDone() {
+    try { return JSON.parse(localStorage.getItem('filedb-tour') || '[]'); } catch (e) { return []; }
+  }
+  function setTourDone(list) {
+    try { localStorage.setItem('filedb-tour', JSON.stringify(list)); } catch (e) { /* ignore */ }
+  }
+  function renderTour() {
+    var done = tourDone();
+    el.tour.innerHTML = TOUR.map(function (s, i) {
+      var ok = done.indexOf(i) >= 0;
+      return '<li><button type="button" class="tour-btn' + (ok ? ' is-done' : '') + '" data-step="' + i + '">' +
+        '<span class="tour-num">' + (ok ? '✓' : i + 1) + '</span>' +
+        '<span class="tour-text">' + esc(s[0]) + '<span class="tour-cmd">' + esc(s[1][0]) + '</span></span></button></li>';
+    }).join('');
+    el.tourCount.textContent = done.length + '/' + TOUR.length;
+  }
+
   async function runMany(cmds) {
     if (busy) return;
     busy = true;
@@ -622,6 +657,17 @@
     if ((b = e.target.closest('[data-table]'))) {
       current = b.getAttribute('data-table'); lastChange = null; setParam('table', current); renderAll(); return;
     }
+    if ((b = e.target.closest('[data-step]'))) {
+      var i = +b.getAttribute('data-step');
+      var cmds = TOUR[i][1].slice();
+      var made = cmds[0].match(/^create (\w+)/);           /* step 1 or 9 again: start that table fresh */
+      if (made && findTable(made[1])) cmds.unshift('drop ' + made[1]);
+      if (i === 0) setTourDone([]);
+      runMany(cmds).then(function () {
+        var done = tourDone(); if (done.indexOf(i) < 0) done.push(i); setTourDone(done); renderTour();
+      });
+      return;
+    }
     if ((b = e.target.closest('[data-run]'))) { showView('studio'); runMany([b.getAttribute('data-run')]); return; }
     if ((b = e.target.closest('[data-view]'))) { showView(b.getAttribute('data-view')); return; }
     if ((b = e.target.closest('[data-fview]')) && !b.disabled) {
@@ -642,6 +688,7 @@
    * ================================================================ */
   async function boot() {
     renderCommandDocs();
+    renderTour();
     if (SOURCE_URL) $('#source-link').href = SOURCE_URL;
     else $('#source-link').hidden = true;
 

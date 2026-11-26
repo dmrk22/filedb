@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <meta name="theme-color" content="#ffffff">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <a class="skip-link" href="#console-input">Skip to the console</a>
@@ -33,6 +33,12 @@
       <h2 class="side-title">Tables</h2>
       <ul class="table-list" id="table-list"></ul>
       <button class="btn btn-brand btn-block" id="btn-sample" type="button">Load sample data</button>
+
+      <div class="side-tour">
+        <div class="side-head"><h2 class="side-title">Quick start</h2><span class="side-count" id="tour-count">0/12</span></div>
+        <p class="tour-hint">Click a step to run it.</p>
+        <ol class="tour" id="tour"></ol>
+      </div>
     </aside>
 
     <div class="work">
@@ -173,7 +179,7 @@ make test</code></pre>
   </section>
 </div>
 
-<script src="filedb.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="filedb.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
